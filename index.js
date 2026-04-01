@@ -11,6 +11,67 @@ const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
+const puppeteer = require('puppeteer');
+
+// ============================================
+// CHROME EXECUTABLE FINDER FOR RENDER
+// ============================================
+async function getChromeExecutablePath() {
+    // First try Puppeteer's bundled Chrome
+    try {
+        const browser = await puppeteer.launch();
+        const executablePath = puppeteer.executablePath();
+        await browser.close();
+        if (executablePath && fs.existsSync(executablePath)) {
+            log(`Found Chrome at: ${executablePath}`);
+            return executablePath;
+        }
+    } catch (e) {
+        log(`Puppeteer bundled Chrome not available: ${e.message}`);
+    }
+
+    // Try common Linux paths for Chrome/Chromium
+    const possiblePaths = [
+        '/opt/render/.cache/puppeteer/chrome/linux-*/chrome-linux/chrome',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/lib/chromium-browser/chromium-browser',
+        '/usr/lib/chromium/chromium',
+        '/usr/local/bin/chromium',
+        '/snap/bin/chromium',
+    ];
+
+    for (const chromePath of possiblePaths) {
+        if (fs.existsSync(chromePath)) {
+            log(`Found Chrome at: ${chromePath}`);
+            return chromePath;
+        }
+    }
+
+    // Try to find with glob pattern in puppeteer cache
+    const puppeteerCache = '/opt/render/.cache/puppeteer';
+    if (fs.existsSync(puppeteerCache)) {
+        try {
+            const files = fs.readdirSync(puppeteerCache);
+            for (const file of files) {
+                if (file.startsWith('chrome')) {
+                    const chromePath = path.join(puppeteerCache, file, 'chrome-linux', 'chrome');
+                    if (fs.existsSync(chromePath)) {
+                        log(`Found Chrome in cache: ${chromePath}`);
+                        return chromePath;
+                    }
+                }
+            }
+        } catch (e) {
+            log(`Error searching puppeteer cache: ${e.message}`);
+        }
+    }
+
+    log('WARNING: Could not find Chrome executable', 'error');
+    return null;
+}
 
 // ============================================
 // CONFIGURATION & CONSTANTS
@@ -517,20 +578,28 @@ When someone sends a screenshot, acknowledge receipt politely.`;
 }
 
 // ============================================
-// WHATSAPP CLIENT SETUP
+// WHATSAPP CLIENT SETUP (ASYNC)
 // ============================================
-// Ensure auth directory exists
-const authPath = path.join(__dirname, '.wwebjs_auth');
-if (!fs.existsSync(authPath)) {
-    fs.mkdirSync(authPath, { recursive: true });
-    log(`Created auth directory: ${authPath}`);
-}
+let client = null;
 
-const client = new Client({
-    authStrategy: new LocalAuth({
-        dataPath: authPath
-    }),
-    puppeteer: {
+async function initializeWhatsAppClient() {
+    // Ensure auth directory exists
+    const authPath = path.join(__dirname, '.wwebjs_auth');
+    if (!fs.existsSync(authPath)) {
+        fs.mkdirSync(authPath, { recursive: true });
+        log(`Created auth directory: ${authPath}`);
+    }
+
+    // Find Chrome executable
+    log('Searching for Chrome executable...');
+    const executablePath = await getChromeExecutablePath();
+
+    if (!executablePath) {
+        log('ERROR: Chrome not found! Make sure puppeteer is installed.', 'error');
+        log('Trying to continue with default settings...', 'error');
+    }
+
+    const puppeteerOptions = {
         headless: true,
         args: [
             '--no-sandbox',
@@ -541,13 +610,121 @@ const client = new Client({
             '--disable-gpu',
             '--disable-web-security',
             '--disable-features=IsolateOrigins',
-            '--disable-site-isolation-trials'
+            '--disable-site-isolation-trials',
+            '--disable-dev-shm-usage',
+            '--no-first-run',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding'
         ],
         defaultViewport: { width: 1920, height: 1080 },
         dumpio: false
-    },
-    qrMaxRetries: 5
-});
+    };
+
+    // Add executable path if found
+    if (executablePath) {
+        puppeteerOptions.executablePath = executablePath;
+    }
+
+    client = new Client({
+        authStrategy: new LocalAuth({
+            dataPath: authPath
+        }),
+        puppeteer: puppeteerOptions,
+        qrMaxRetries: 10,
+        takeoverOnConflict: true,
+        takeoverTimeoutMs: 0
+    });
+
+    // ============================================
+    // WHATSAPP EVENT HANDLERS
+    // ============================================
+    client.on('qr', (qr) => {
+        DashboardState.qrGenerated = true;
+        DashboardState.qrCodeData = qr;
+        DashboardState.clientState = 'QR_GENERATED';
+
+        log('QR Code generated - Scan karein!');
+
+        // Print to console with ANSI colors for better visibility
+        console.log('\n\n' + '='.repeat(60));
+        console.log('WHATSAPP QR CODE - SCAN THIS NOW!');
+        console.log('='.repeat(60) + '\n');
+        qrcode.generate(qr, { small: true });
+        console.log('\n' + '='.repeat(60));
+        console.log(`Setup URL: ${CONFIG.RENDER_URL}/setup`);
+        console.log('='.repeat(60) + '\n');
+    });
+
+    client.on('authenticated', () => {
+        log('WhatsApp authenticated successfully');
+        DashboardState.clientState = 'AUTHENTICATED';
+    });
+
+    client.on('auth_failure', (msg) => {
+        log(`Authentication failure: ${msg}`, 'error');
+        DashboardState.clientState = 'AUTH_FAILED';
+    });
+
+    client.on('ready', async () => {
+        log('SimFly OS Bot is READY!');
+        DashboardState.isReady = true;
+        DashboardState.clientState = 'READY';
+        DashboardState.qrCodeData = null;
+
+        // Generate admin token
+        DashboardState.adminToken = generateAdminToken();
+        log(`Admin Dashboard Token: ${DashboardState.adminToken}`);
+
+        // Send notification to admin
+        if (CONFIG.ADMIN_NUMBER) {
+            const adminChatId = `${CONFIG.ADMIN_NUMBER}@c.us`;
+            const dashboardUrl = `${CONFIG.RENDER_URL}/dashboard/${DashboardState.adminToken}`;
+            const notificationMessage = `SimFly OS Live! 🚀\n\nDashboard Token: ${DashboardState.adminToken}\nAccess: ${dashboardUrl}\n\nBot is ready for sales! 💰`;
+
+            try {
+                await client.sendMessage(adminChatId, notificationMessage);
+                log(`Admin notification sent to ${CONFIG.ADMIN_NUMBER}`);
+            } catch (error) {
+                log(`Failed to send admin notification: ${error.message}`, 'error');
+            }
+        } else {
+            log('WARNING: ADMIN_NUMBER not set - no notification sent', 'error');
+        }
+    });
+
+    client.on('message_create', async (msg) => {
+        // Only handle incoming messages (not from self)
+        if (msg.fromMe) return;
+        await handleMessage(msg);
+    });
+
+    client.on('disconnected', (reason) => {
+        log(`WhatsApp disconnected: ${reason}`);
+        DashboardState.isReady = false;
+        DashboardState.qrGenerated = false;
+        DashboardState.clientState = 'DISCONNECTED';
+    });
+
+    client.on('loading_screen', (percent, message) => {
+        log(`WhatsApp loading: ${percent}% - ${message}`);
+        DashboardState.clientState = 'LOADING';
+    });
+
+    client.on('error', (error) => {
+        log(`WhatsApp client error: ${error.message}`, 'error');
+        DashboardState.clientState = 'ERROR';
+    });
+
+    // Initialize client
+    log('Initializing WhatsApp client...');
+    try {
+        await client.initialize();
+    } catch (error) {
+        log(`Failed to initialize WhatsApp client: ${error.message}`, 'error');
+        throw error;
+    }
+}
 
 // ============================================
 // MESSAGE HANDLER
@@ -669,86 +846,6 @@ async function handleMessage(message) {
 }
 
 // ============================================
-// WHATSAPP EVENT HANDLERS
-// ============================================
-client.on('qr', (qr) => {
-    DashboardState.qrGenerated = true;
-    DashboardState.qrCodeData = qr;
-    DashboardState.clientState = 'QR_GENERATED';
-
-    log('QR Code generated - Scan karein!');
-
-    // Print to console with ANSI colors for better visibility
-    console.log('\n\n' + '='.repeat(60));
-    console.log('WHATSAPP QR CODE - SCAN THIS NOW!');
-    console.log('='.repeat(60) + '\n');
-    qrcode.generate(qr, { small: true });
-    console.log('\n' + '='.repeat(60));
-    console.log(`Setup URL: ${CONFIG.RENDER_URL}/setup`);
-    console.log('='.repeat(60) + '\n');
-});
-
-client.on('authenticated', () => {
-    log('WhatsApp authenticated successfully');
-    DashboardState.clientState = 'AUTHENTICATED';
-});
-
-client.on('auth_failure', (msg) => {
-    log(`Authentication failure: ${msg}`, 'error');
-    DashboardState.clientState = 'AUTH_FAILED';
-});
-
-client.on('ready', async () => {
-    log('SimFly OS Bot is READY!');
-    DashboardState.isReady = true;
-    DashboardState.clientState = 'READY';
-    DashboardState.qrCodeData = null;
-
-    // Generate admin token
-    DashboardState.adminToken = generateAdminToken();
-    log(`Admin Dashboard Token: ${DashboardState.adminToken}`);
-
-    // Send notification to admin
-    if (CONFIG.ADMIN_NUMBER) {
-        const adminChatId = `${CONFIG.ADMIN_NUMBER}@c.us`;
-        const dashboardUrl = `${CONFIG.RENDER_URL}/dashboard/${DashboardState.adminToken}`;
-        const notificationMessage = `SimFly OS Live! 🚀\n\nDashboard Token: ${DashboardState.adminToken}\nAccess: ${dashboardUrl}\n\nBot is ready for sales! 💰`;
-
-        try {
-            await client.sendMessage(adminChatId, notificationMessage);
-            log(`Admin notification sent to ${CONFIG.ADMIN_NUMBER}`);
-        } catch (error) {
-            log(`Failed to send admin notification: ${error.message}`, 'error');
-        }
-    } else {
-        log('WARNING: ADMIN_NUMBER not set - no notification sent', 'error');
-    }
-});
-
-client.on('message_create', async (msg) => {
-    // Only handle incoming messages (not from self)
-    if (msg.fromMe) return;
-    await handleMessage(msg);
-});
-
-client.on('disconnected', (reason) => {
-    log(`WhatsApp disconnected: ${reason}`);
-    DashboardState.isReady = false;
-    DashboardState.qrGenerated = false;
-    DashboardState.clientState = 'DISCONNECTED';
-});
-
-client.on('loading_screen', (percent, message) => {
-    log(`WhatsApp loading: ${percent}% - ${message}`);
-    DashboardState.clientState = 'LOADING';
-});
-
-client.on('error', (error) => {
-    log(`WhatsApp client error: ${error.message}`, 'error');
-    DashboardState.clientState = 'ERROR';
-});
-
-// ============================================
 // GRACEFUL SHUTDOWN
 // ============================================
 process.on('SIGTERM', () => {
@@ -778,11 +875,13 @@ process.on('unhandledRejection', (reason, promise) => {
 // ============================================
 // INITIALIZE WHATSAPP CLIENT
 // ============================================
-log('Starting SimFly OS v1.0.0...');
+log('Starting SimFly OS v1.0.1...');
 log(`Render URL: ${CONFIG.RENDER_URL}`);
 log(`Memory limit: 200MB`);
-log(`Auth path: ${authPath}`);
 
-client.initialize().catch(error => {
-    log(`Failed to initialize WhatsApp client: ${error.message}`, 'error');
-});
+// Start WhatsApp client after a brief delay to ensure server is up
+setTimeout(() => {
+    initializeWhatsAppClient().catch(error => {
+        log(`Critical error initializing WhatsApp: ${error.message}`, 'error');
+    });
+}, 2000);
