@@ -234,7 +234,7 @@ async function generateResponse(userMsg) {
                     { role: 'system', content: SYSTEM_PROMPT },
                     { role: 'user', content: userMsg }
                 ],
-                model: 'llama3-8b-8192',
+                model: 'llama-3.1-8b-instant',
                 max_tokens: 400,
                 temperature: 0.7
             });
