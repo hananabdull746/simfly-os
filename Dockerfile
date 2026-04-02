@@ -57,15 +57,15 @@ COPY . .
 # Environment variables
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
-    PORT=3000 \
+    PORT=8080 \
     NODE_ENV=production
 
-# Expose port
-EXPOSE 3000
+# Expose port (Fly.io uses 8080)
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:3000/ || exit 1
+    CMD curl -f http://localhost:8080/ || exit 1
 
 # Start command
 CMD ["npm", "start"]
