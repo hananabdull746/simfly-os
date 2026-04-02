@@ -1075,13 +1075,41 @@ async function initWhatsApp() {
     });
 
     // SINGLE message handler - no duplicates
+    const processedMessages = new Set();
+
     client.on('message', async (msg) => {
         if (msg.fromMe) return;
-        if (!msg.body && !msg.hasMedia) return; // Skip empty messages
+        if (!msg.body && !msg.hasMedia) return;
 
-        // Small delay to ensure message is fully processed
-        await new Promise(r => setTimeout(r, 300));
+        // Prevent duplicate processing
+        const msgId = msg.id?.id || msg.id?._serialized;
+        if (msgId && processedMessages.has(msgId)) {
+            log(`Skipping duplicate message: ${msgId.slice(-8)}`);
+            return;
+        }
+        if (msgId) processedMessages.add(msgId);
+
+        // Keep set size manageable
+        if (processedMessages.size > 100) {
+            const first = processedMessages.values().next().value;
+            processedMessages.delete(first);
+        }
+
+        // Show typing indicator
+        let chat = null;
+        try {
+            chat = await msg.getChat();
+            chat.sendStateTyping();
+        } catch (e) {}
+
+        // Process message with understanding delay
+        await new Promise(r => setTimeout(r, 1000)); // 1 second "thinking" time
         await handleMessage(msg);
+
+        // Stop typing
+        try {
+            if (chat) chat.clearState();
+        } catch (e) {}
     });
 
     client.on('disconnected', () => {

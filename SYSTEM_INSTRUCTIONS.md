@@ -10,6 +10,7 @@
 **Current Version:** v2.0.1
 **Tech Stack:** Node.js, whatsapp-web.js, Express, Groq AI API, Puppeteer
 **Hosting:** Render (Cloud), Chrome via @sparticuz/chromium
+**Alternative:** Railway.com (via railway.json)
 
 ### Core Purpose
 - Auto-reply to customer WhatsApp messages about eSIM plans
@@ -24,6 +25,7 @@
 ```
 simfly-os/
 ├── index.js              # Main application file (all code here)
+├── railway.json          # Railway.com deployment config
 ├── .env                  # Environment variables
 ├── package.json          # Dependencies
 ├── SYSTEM_INSTRUCTIONS.md # This file
@@ -69,22 +71,57 @@ const State = {
 };
 ```
 
-### 3.3 MESSAGE HANDLING (lines 257-340)
+### 3.3 MESSAGE HANDLING - DUPLICATE PREVENTION (CRITICAL)
+
+**The Problem:** Bot was sending duplicate replies (2 messages for 1 incoming message)
+
+**The Solution:**
+```javascript
+const processedMessages = new Set();
+
+client.on('message', async (msg) => {
+    if (msg.fromMe) return;
+    if (!msg.body && !msg.hasMedia) return;
+
+    // STEP 1: Deduplication Check
+    const msgId = msg.id?.id || msg.id?._serialized;
+    if (msgId && processedMessages.has(msgId)) {
+        log(`Skipping duplicate: ${msgId.slice(-8)}`);
+        return;
+    }
+    if (msgId) processedMessages.add(msgId);
+    
+    // Keep set size manageable (prevent memory leak)
+    if (processedMessages.size > 100) {
+        const first = processedMessages.values().next().value;
+        processedMessages.delete(first);
+    }
+
+    // STEP 2: Show Typing Indicator
+    let chat = null;
+    try {
+        chat = await msg.getChat();
+        chat.sendStateTyping();  // Shows "typing..." in WhatsApp
+    } catch (e) {}
+
+    // STEP 3: "Thinking" Delay (makes it feel natural)
+    await new Promise(r => setTimeout(r, 1000));
+
+    // STEP 4: Process Message
+    await handleMessage(msg);
+
+    // STEP 5: Clear Typing Indicator
+    try {
+        if (chat) chat.clearState();
+    } catch (e) {}
+});
+```
+
 **Key Features:**
 - **Deduplication:** `processedMessages` Set prevents duplicate replies
-- **Queue System:** `messageQueue` Map ensures sequential processing per chat
 - **Typing Indicator:** `chat.sendStateTyping()` shows "typing..."
-- **Message Tracking:** Last 100 message IDs stored to prevent duplicates
-
-**Flow:**
-1. `message` event triggered
-2. Check if already processed (deduplication)
-3. Add to queue for that chat
-4. Process queue (one message at a time per chat)
-5. Show typing indicator
-6. Generate response
-7. Send reply
-8. Clear typing state
+- **Thinking Delay:** 1 second delay before reply (feels natural)
+- **Memory Management:** Max 100 message IDs stored
 
 ### 3.4 AI RESPONSE GENERATION (lines 212-252)
 ```javascript
@@ -137,7 +174,7 @@ async function generateResponse(userMsg) {
 - `qr` - QR code generated for scanning
 - `authenticated` - Session authenticated
 - `ready` - Bot fully ready
-- `message` - New message received (SINGLE handler, no duplicates)
+- `message` - New message received (SINGLE handler only!)
 - `disconnected` - Connection lost
 
 **Puppeteer Config:**
@@ -209,9 +246,21 @@ STRICT RULES:
 
 ## 7. COMMON ISSUES & FIXES
 
-### Issue: Duplicate Replies
+### Issue: Duplicate Replies (FIXED ✅)
 **Cause:** Multiple event listeners (`message` + `message_create`)
-**Fix:** Only use ONE event listener (`message`), implement `processedMessages` Set for deduplication
+**Fix:** 
+1. Use ONLY ONE event listener (`message`)
+2. Implement `processedMessages` Set for deduplication
+3. Check message ID before processing
+
+### Issue: Typing Indicator Not Showing
+**Fix:** Must get chat object first:
+```javascript
+const chat = await msg.getChat();
+await chat.sendStateTyping();
+// ... process message ...
+await chat.clearState();
+```
 
 ### Issue: Bot Not Responding
 **Check:**
@@ -251,14 +300,34 @@ The user (hananabdull746) prefers:
 
 ---
 
-## 9. DEVELOPMENT WORKFLOW
+## 9. DEPLOYMENT
 
-1. **Test locally** or check code carefully
-2. **Commit:** `git commit -m "vX.X.X: Description"`
-3. **Push:** `git push origin main`
-4. **Deploy:** Render auto-deploys on push
-5. **Scan QR:** On Render, wait for QR, scan with WhatsApp
-6. **Verify:** Check dashboard and test messages
+### Render.com (Primary)
+1. Create Web Service → Connect GitHub repo
+2. Environment Variables:
+   - `GROQ_API_KEY`
+   - `ADMIN_NUMBER`
+   - `RENDER_URL`
+3. Build Command: `npm install`
+4. Start Command: `npm start`
+5. Deploy
+
+### Railway.com (Alternative)
+1. Create Project → Connect repo
+2. Add same variables + `RAILWAY_URL`
+3. Railway reads `railway.json` automatically:
+```json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": { "builder": "NIXPACKS", "buildCommand": "npm install" },
+  "deploy": { 
+    "startCommand": "npm start",
+    "healthcheckPath": "/",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
+```
+4. Deploy
 
 ---
 
@@ -294,7 +363,7 @@ if (sent && sent.id) {
 }
 ```
 
-### Getting Chat Object
+### Getting Chat Object (for typing indicator)
 ```javascript
 const chat = await message.getChat();
 await chat.sendStateTyping();     // Show typing
@@ -354,7 +423,17 @@ RENDER_URL=https://your-app.onrender.com
 
 ---
 
-## 14. CONTACT & SUPPORT
+## 14. WHAT WAS FIXED IN LATEST UPDATE
+
+1. ✅ **Duplicate Replies:** Added `processedMessages` Set to track and skip already-processed messages
+2. ✅ **Typing Indicator:** Added `chat.sendStateTyping()` before reply and `chat.clearState()` after
+3. ✅ **Thinking Delay:** 1-second delay makes bot feel more natural
+4. ✅ **Railway Support:** Added `railway.json` for Railway.com deployment
+5. ✅ **Session Tracking:** Stores WhatsApp session ID and client info
+
+---
+
+## 15. CONTACT & SUPPORT
 
 - **Developer:** hananabdull746
 - **Business:** SimFly Pakistan
@@ -365,4 +444,4 @@ RENDER_URL=https://your-app.onrender.com
 **END OF SYSTEM INSTRUCTIONS**
 
 Last Updated: 2026-04-02
-Version: v2.0.1
+Version: v2.1.0
