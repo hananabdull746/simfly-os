@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node --max-old-space-size=200 --expose-gc index.js",
     "dev": "node --max-old-space-size=200 --expose-gc index.js"
-  }
+  },
   "keywords": [
     "whatsapp",
     "bot",
