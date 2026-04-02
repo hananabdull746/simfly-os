@@ -108,7 +108,7 @@ Dobara try karein ya admin se contact karein! 🙏`
 };
 
 // ============================================
-// STATE MANAGEMENT
+// STATE MANAGEMENT - OPTIMIZED FOR MEMORY
 // ============================================
 const State = {
     startTime: Date.now(),
@@ -121,13 +121,13 @@ const State = {
     qrCodeData: null,
     logs: [],
     clientState: 'INITIALIZING',
-    aiProvider: 'GROQ', // GROQ or TEMPLATE
-    aiStatus: 'CHECKING', // CHECKING, WORKING, FAILED
+    aiProvider: 'GROQ',
+    aiStatus: 'CHECKING',
     settings: {
         autoReply: true,
         sendNotifications: true,
         debugMode: false,
-        responseDelay: 1000 // ms
+        responseDelay: 800 // Reduced for faster response
     },
     messageQueue: [],
     lastError: null,
@@ -139,42 +139,129 @@ const State = {
     }
 };
 
+// MEMORY LIMITS
+const MEMORY_CONFIG = {
+    maxLogs: 30,           // Keep only 30 logs
+    maxConversations: 50,  // Keep only 50 recent conversations
+    maxProcessedMsgs: 50,  // Keep only 50 processed message IDs
+    cleanupInterval: 300000 // Cleanup every 5 minutes
+};
+
 function log(msg, type = 'info') {
     const entry = `[${new Date().toLocaleTimeString()}] [${type.toUpperCase()}] ${msg}`;
     State.logs.push(entry);
-    if (State.logs.length > 150) State.logs.shift();
+    // Keep only recent logs to save memory
+    if (State.logs.length > MEMORY_CONFIG.maxLogs) {
+        State.logs = State.logs.slice(-MEMORY_CONFIG.maxLogs);
+    }
     console.log(entry);
 }
 
+// Memory cleanup function
+function cleanupMemory() {
+    // Clean old conversations
+    if (State.conversations.size > MEMORY_CONFIG.maxConversations) {
+        const entries = Array.from(State.conversations.entries());
+        const toKeep = entries.slice(-MEMORY_CONFIG.maxConversations);
+        State.conversations.clear();
+        toKeep.forEach(([k, v]) => State.conversations.set(k, v));
+        log(`Memory cleaned: conversations reduced to ${State.conversations.size}`);
+    }
+
+    // Clean old processed messages
+    if (processedMessages.size > MEMORY_CONFIG.maxProcessedMsgs) {
+        const arr = Array.from(processedMessages);
+        processedMessages.clear();
+        arr.slice(-MEMORY_CONFIG.maxProcessedMsgs).forEach(id => processedMessages.add(id));
+    }
+
+    // Force garbage collection if available
+    if (global.gc) {
+        global.gc();
+        log('Garbage collection triggered');
+    }
+}
+
 // ============================================
-// AI MANAGEMENT
+// AI MANAGEMENT - SALES FOCUSED
 // ============================================
 let groqClient = null;
 
-const DEFAULT_SYSTEM_PROMPT = `You are a friendly Sales Manager at SimFly Pakistan (eSIM for Non-PTA iPhones).
+// Conversation memory per chat (lightweight)
+const conversationMemory = new Map();
 
-Use Roman Urdu/Hinglish with emojis. Be friendly but professional.
+const MEGA_SYSTEM_PROMPT = `You are the EXPERT Sales Manager at SimFly Pakistan - Pakistan's #1 eSIM Provider for Non-PTA iPhones.
 
-PRICING:
-⚡ STARTER: 500MB @ Rs. 130 (2 years)
-🔥 POPULAR: 1GB @ Rs. 400 (2 years) - MOST POPULAR
-💎 MEGA: 5GB @ Rs. 1500 (4 devices)
+YOUR MISSION: Convert every inquiry into a PAID order. You MUST push customers to buy!
 
-PAYMENT:
-💳 Easypaisa: 03466544374 (Shafqat)
-💳 JazzCash: 03456754090 (Shafqat)
-💳 SadaPay: 03116400376 (Abdullah Saahi)
+📦 PRODUCTS (ONLY SELL THESE):
+⚡ STARTER: 500MB Data = Rs. 130 (2 Years Validity) - Budget option
+🔥 POPULAR: 1GB Data = Rs. 400 (2 Years Validity) - BEST SELLER, Most Popular
+💎 MEGA: 5GB Data = Rs. 1500 (Supports 4 Devices) - Premium Package
 
-STRICT RULES:
-1. Use emojis in every response
-2. Keep replies SHORT (max 3-4 lines)
-3. No markdown (*, **, _, #)
-4. No discounts
-5. Focus on closing sales
-6. If asked about NON-BUSINESS topics, reply: "Sorry bhai, main sirf SimFly Pakistan ke eSIM plans ke bare mein help kar sakta hoon. 😊"
-7. Always stay on topic - eSIM, pricing, payment, activation`;
+💳 PAYMENT METHODS:
+1️⃣ Easypaisa: 03466544374 (Name: Shafqat)
+2️⃣ JazzCash: 03456754090 (Name: Shafqat)
+3️⃣ SadaPay: 03116400376 (Name: Abdullah Saahi)
 
-let SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
+⚠️ IMPORTANT: SadaPay shows "Abdullah Saahi" as receiver name!
+
+🎯 SALES STRATEGY - FOLLOW THIS STRICTLY:
+
+STEP 1 - GREETING:
+- Warm welcome in Roman Urdu
+- Ask: "Kaunsa iPhone hai aapka?" (Build rapport)
+- Mention: "Non-PTA ke liye perfect solution hai!"
+
+STEP 2 - UNDERSTAND NEED:
+- Ask about their data usage
+- Kitna internet use karte hain?
+- 1 device ya multiple devices?
+
+STEP 3 - RECOMMEND PRODUCT:
+- Low usage (500MB/month) → STARTER
+- Normal usage (1GB/month) → POPULAR (Push this!)
+- Heavy usage/Multiple devices → MEGA
+
+STEP 4 - PUSH FOR PAYMENT:
+- After they show interest, IMMEDIATELY say:
+  "Bhai abhi payment kar lo, instant activation ho jayega! 😊"
+- Give ONE payment method at a time
+- Easypaisa pehle recommend karo
+
+STEP 5 - CLOSE THE DEAL:
+- Payment ka screenshot manga
+- "Jaldi bhejo bhai, stock limited hai! 🔥"
+- After screenshot → Thank + Confirm activation
+
+🚫 STRICT RULES - NEVER BREAK:
+1. Reply in ROMAN URDU/HINGLISH only
+2. Keep replies SHORT (2-4 lines max)
+3. Use emojis in EVERY message
+4. NO markdown (*, **, _, #)
+5. NO discounts - prices are fixed
+6. NO off-topic discussion - ONLY eSIM/payment/activation
+7. Always stay FRIENDLY but PERSISTENT
+8. Push for IMMEDIATE payment - "Abhi kar lo bhai!"
+9. Create urgency - "Offer limited hai!"
+10. Ask questions to keep conversation going
+
+📝 CONVERSATION FLOW:
+- Greeting → Product Info → Push Payment → Screenshot → Thank
+- If they delay: "Bhai jaldi karo, stock khatam hone wala hai! 😊"
+- If they hesitate: "400 mein 1GB, 2 saal ka sukoon! 💪"
+
+❌ IF ASKED NON-BUSINESS QUESTIONS:
+Reply: "Bhai main sirf eSIM plans ke baare mein help kar sakta hoon. Konsa plan lena hai? 😊"
+
+✅ ALWAYS END WITH:
+- A question OR
+- Payment instruction OR
+- Urgency statement
+
+Never let conversation die! Keep pushing for SALE!`;
+
+let SYSTEM_PROMPT = MEGA_SYSTEM_PROMPT;
 
 async function initAI() {
     if (!CONFIG.GROQ_API_KEY) {
@@ -209,42 +296,74 @@ async function initAI() {
     State.aiStatus = 'FAILED';
 }
 
-async function generateResponse(userMsg) {
+async function generateResponse(userMsg, chatId) {
     const msg = userMsg.toLowerCase().trim();
 
-    // Smart template matching
-    if (msg.includes('hi') || msg.includes('hello') || msg.includes('assalam') || msg.includes('start') || msg.includes('/start')) {
+    // Quick template matching for common keywords
+    if (msg.includes('hi') || msg.includes('hello') || msg.includes('assalam') || msg.includes('start')) {
+        // Initialize conversation memory
+        conversationMemory.set(chatId, { stage: 'greeting', history: [], lastUpdate: Date.now() });
         return TEMPLATES.welcome;
     }
-    if (msg.includes('price') || msg.includes('plan') || msg.includes('package') || msg.includes('rs.') || msg.includes('cost') || msg.includes('rate') || msg.includes('kitne')) {
-        return TEMPLATES.pricing;
-    }
-    if (msg.includes('payment') || msg.includes('pay') || msg.includes('easypaisa') || msg.includes('jazzcash') || msg.includes('sadapay') || msg.includes('send') || msg.includes('number')) {
-        return TEMPLATES.payment;
-    }
-    if (msg.includes('thank') || msg.includes('shukria') || msg.includes('thanks') || msg.includes('shukran')) {
-        return TEMPLATES.thanks;
-    }
 
-    // AI Response (if enabled and working)
+    // AI Response with conversation memory
     if (State.settings.autoReply && State.aiProvider === 'GROQ' && State.aiStatus === 'WORKING' && groqClient) {
         try {
+            // Get conversation context
+            let convContext = conversationMemory.get(chatId);
+            if (!convContext) {
+                convContext = { stage: 'new', history: [], lastUpdate: Date.now() };
+                conversationMemory.set(chatId, convContext);
+            }
+
+            // Keep only last 3 messages for memory efficiency
+            convContext.history.push({ role: 'user', content: userMsg });
+            if (convContext.history.length > 3) {
+                convContext.history.shift();
+            }
+
+            // Build messages with context
+            const messages = [
+                { role: 'system', content: SYSTEM_PROMPT },
+                ...convContext.history.slice(0, -1).map(h => ({ role: h.role, content: h.content })),
+                { role: 'user', content: userMsg }
+            ];
+
             const chat = await groqClient.chat.completions.create({
-                messages: [
-                    { role: 'system', content: SYSTEM_PROMPT },
-                    { role: 'user', content: userMsg }
-                ],
+                messages: messages,
                 model: 'llama-3.1-8b-instant',
-                max_tokens: 400,
-                temperature: 0.7
+                max_tokens: 250, // Reduced for faster response
+                temperature: 0.6, // Slightly more focused
+                stream: false
             });
 
-            return chat.choices[0].message.content
+            let response = chat.choices[0].message.content
                 .replace(/\*\*/g, '').replace(/\*/g, '')
                 .replace(/__/g, '').replace(/_/g, '')
                 .replace(/#/g, '').replace(/`/g, '');
+
+            // Store bot response
+            convContext.history.push({ role: 'assistant', content: response });
+            convContext.lastUpdate = Date.now();
+
+            return response;
         } catch (e) {
             log(`AI error: ${e.message}`, 'error');
+            // Fallback to templates
+            if (msg.includes('price') || msg.includes('plan') || msg.includes('kitne')) return TEMPLATES.pricing;
+            if (msg.includes('payment') || msg.includes('pay') || msg.includes('easypaisa') || msg.includes('jazzcash') || msg.includes('sadapay')) return TEMPLATES.payment;
+            if (msg.includes('thank') || msg.includes('shukria')) return TEMPLATES.thanks;
+        }
+    } else {
+        // Template-only mode
+        if (msg.includes('price') || msg.includes('plan') || msg.includes('rs.') || msg.includes('cost') || msg.includes('rate') || msg.includes('kitne')) {
+            return TEMPLATES.pricing;
+        }
+        if (msg.includes('payment') || msg.includes('pay') || msg.includes('easypaisa') || msg.includes('jazzcash') || msg.includes('sadapay') || msg.includes('send') || msg.includes('number')) {
+            return TEMPLATES.payment;
+        }
+        if (msg.includes('thank') || msg.includes('shukria') || msg.includes('thanks') || msg.includes('shukran')) {
+            return TEMPLATES.thanks;
         }
     }
 
@@ -271,8 +390,8 @@ async function handleMessage(message) {
     }
     processedMessages.add(msgId);
 
-    // Clean up old message IDs (keep last 100)
-    if (processedMessages.size > 100) {
+    // Clean up old message IDs (keep last 50)
+    if (processedMessages.size > MEMORY_CONFIG.maxProcessedMsgs) {
         const iterator = processedMessages.values();
         processedMessages.delete(iterator.next().value);
     }
@@ -321,13 +440,16 @@ async function processSingleMessage(message, chatId, conv) {
             log('📸 Screenshot received');
             reply = TEMPLATES.screenshot;
             State.totalOrders++;
+
+            // Clear conversation memory after order
+            conversationMemory.delete(chatId);
         } else {
             // Show typing indicator
             await chat.sendStateTyping();
 
             // Generate response with delay
             await new Promise(r => setTimeout(r, State.settings.responseDelay));
-            reply = await generateResponse(message.body || '');
+            reply = await generateResponse(message.body || '', chatId);
 
             // Stop typing before sending
             await chat.clearState();
@@ -982,10 +1104,43 @@ async function initWhatsApp() {
 process.on('SIGTERM', () => server.close(() => process.exit(0)));
 process.on('SIGINT', () => server.close(() => process.exit(0)));
 
+// Memory cleanup interval (every 5 minutes)
+setInterval(cleanupMemory, MEMORY_CONFIG.cleanupInterval);
+
+// ============================================
+// 24/7 KEEP-ALIVE (Self-ping)
+// ============================================
+if (CONFIG.RENDER_URL && CONFIG.RENDER_URL.includes('onrender.com')) {
+    const https = require('https');
+    const http = require('http');
+
+    setInterval(() => {
+        const url = CONFIG.RENDER_URL;
+        const protocol = url.startsWith('https') ? https : http;
+
+        const req = protocol.get(url, (res) => {
+            log(`Self-ping: ${res.statusCode} OK`);
+        });
+        req.on('error', (e) => {
+            log(`Self-ping: ${e.message}`, 'warn');
+        });
+        req.setTimeout(5000, () => req.abort());
+    }, 600000); // Every 10 minutes
+
+    log('24/7 Self-ping enabled for Render');
+}
+
 // START
 log('========================================');
-log('SimFly OS v2.0 Starting...');
-log('Priority: GROQ → Templates');
+log('SimFly OS v2.1 - LIGHTWEIGHT EDITION');
+log('Memory Optimized | 24/7 Ready | Sales AI');
 log('========================================');
+
+// Log memory stats every 10 minutes
+setInterval(() => {
+    const mem = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+    const rss = Math.round(process.memoryUsage().rss / 1024 / 1024);
+    log(`Memory: ${mem}MB heap | ${rss}MB RSS`);
+}, 600000);
 
 setTimeout(initWhatsApp, 3000);

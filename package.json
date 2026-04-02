@@ -1,12 +1,12 @@
 {
   "name": "simfly-os",
-  "version": "1.0.3",
-  "description": "SimFly Pakistan WhatsApp Sales Bot with AI Integration",
+  "version": "2.1.0",
+  "description": "SimFly Pakistan WhatsApp Sales Bot - 24/7 Lightweight Edition",
   "main": "index.js",
   "scripts": {
-    "start": "node --max-old-space-size=200 index.js",
-    "dev": "node --max-old-space-size=200 index.js"
-  },
+    "start": "node --max-old-space-size=200 --expose-gc index.js",
+    "dev": "node --max-old-space-size=200 --expose-gc index.js"
+  }
   "keywords": [
     "whatsapp",
     "bot",
