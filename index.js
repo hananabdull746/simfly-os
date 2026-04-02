@@ -130,7 +130,13 @@ const State = {
         responseDelay: 1000 // ms
     },
     messageQueue: [],
-    lastError: null
+    lastError: null,
+    sessionId: null,
+    clientInfo: {
+        name: null,
+        platform: null,
+        connectedAt: null
+    }
 };
 
 function log(msg, type = 'info') {
@@ -145,25 +151,30 @@ function log(msg, type = 'info') {
 // ============================================
 let groqClient = null;
 
-const SYSTEM_PROMPT = `You are a friendly Sales Manager at SimFly Pakistan (eSIM for Non-PTA iPhones).
+const DEFAULT_SYSTEM_PROMPT = `You are a friendly Sales Manager at SimFly Pakistan (eSIM for Non-PTA iPhones).
 
-Use Roman Urdu/Hinglish. Be friendly but professional.
+Use Roman Urdu/Hinglish with emojis. Be friendly but professional.
 
 PRICING:
-• STARTER: 500MB @ Rs. 130 (2 years)
-• POPULAR: 1GB @ Rs. 400 (2 years) - MOST POPULAR
-• MEGA: 5GB @ Rs. 1500 (4 devices)
+⚡ STARTER: 500MB @ Rs. 130 (2 years)
+🔥 POPULAR: 1GB @ Rs. 400 (2 years) - MOST POPULAR
+💎 MEGA: 5GB @ Rs. 1500 (4 devices)
 
 PAYMENT:
-• Easypaisa: 03466544374 (Shafqat)
-• JazzCash: 03456754090 (Shafqat)
-• SadaPay: 03116400376 (Abdullah Saahi)
+💳 Easypaisa: 03466544374 (Shafqat)
+💳 JazzCash: 03456754090 (Shafqat)
+💳 SadaPay: 03116400376 (Abdullah Saahi)
 
-RULES:
-1. No markdown (*, **, _, #)
-2. No discounts
-3. Focus on closing sales
-4. Short, helpful replies`;
+STRICT RULES:
+1. Use emojis in every response
+2. Keep replies SHORT (max 3-4 lines)
+3. No markdown (*, **, _, #)
+4. No discounts
+5. Focus on closing sales
+6. If asked about NON-BUSINESS topics, reply: "Sorry bhai, main sirf SimFly Pakistan ke eSIM plans ke bare mein help kar sakta hoon. 😊"
+7. Always stay on topic - eSIM, pricing, payment, activation`;
+
+let SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
 
 async function initAI() {
     if (!CONFIG.GROQ_API_KEY) {
@@ -174,17 +185,17 @@ async function initAI() {
     }
 
     try {
-        log('Testing Groq AI...');
+        log('Testing Groq AI with llama-3.1-8b-instant...');
         groqClient = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
 
         const test = await groqClient.chat.completions.create({
             messages: [{ role: 'user', content: 'Say "SimFly OK"' }],
-            model: 'llama3-8b-8192',
+            model: 'llama-3.1-8b-instant',
             max_tokens: 10
         });
 
         if (test.choices[0].message.content.includes('OK')) {
-            log('✅ Groq AI WORKING');
+            log('✅ Groq AI WORKING (llama-3.1-8b-instant)');
             State.aiStatus = 'WORKING';
             State.aiProvider = 'GROQ';
             return;
@@ -744,8 +755,8 @@ const server = app.listen(CONFIG.PORT, () => {
 let client = null;
 
 async function sendAdminNotification() {
-    if (!CONFIG.ADMIN_NUMBER || !client || !State.isReady) {
-        log('Cannot notify: Missing number, client, or not ready', 'error');
+    if (!CONFIG.ADMIN_NUMBER || !client) {
+        log('Cannot notify: Missing number or client not initialized', 'error');
         return false;
     }
 
@@ -760,20 +771,20 @@ async function sendAdminNotification() {
     if (!adminNum.startsWith('92')) adminNum = '92' + adminNum;
 
     const chatId = `${adminNum}@c.us`;
-    const msg = `✅ SimFly OS Connected!\n\n🤖 AI: ${State.aiProvider}\n💬 Messages: ${State.totalMessages}\n📦 Orders: ${State.totalOrders}\n\n🔗 Dashboard:\n${CONFIG.RENDER_URL}/dashboard/${State.adminToken}\n\n📱 Token: ${State.adminToken}`;
+    const sessionInfo = State.sessionId ? `\n📱 Session: ${State.sessionId.slice(-8)}` : '';
+    const msg = `✅ SimFly OS Connected!${sessionInfo}\n\n🤖 AI: ${State.aiProvider}\n💬 Messages: ${State.totalMessages}\n📦 Orders: ${State.totalOrders}\n\n🔗 Dashboard:\n${CONFIG.RENDER_URL}/dashboard/${State.adminToken}\n\n📱 Token: ${State.adminToken}`;
 
     log(`Sending notification to ${chatId}...`);
 
-    // Wait for client to be fully ready
-    let attempts = 0;
-    while ((!client.info || !client.pupPage) && attempts < 10) {
-        log(`Waiting for client ready (attempt ${attempts + 1})...`);
-        await new Promise(r => setTimeout(r, 2000));
-        attempts++;
-    }
-
+    // Try to send immediately, if fails retry
     for (let i = 0; i < 5; i++) {
         try {
+            if (!client.sendMessage) {
+                log(`Client not ready (attempt ${i+1}), waiting...`);
+                await new Promise(r => setTimeout(r, 3000));
+                continue;
+            }
+
             const sent = await client.sendMessage(chatId, msg);
 
             if (sent && sent.id) {
@@ -802,9 +813,22 @@ async function onBotReady() {
     State.qrCodeData = null;
     State.adminToken = Math.random().toString(36).substring(2, 10).toUpperCase();
 
-    // Wait 8 seconds for complete stabilization
-    log('Waiting 8 seconds for full stabilization...');
-    await new Promise(r => setTimeout(r, 8000));
+    // Store session info if available
+    try {
+        if (client.info) {
+            State.clientInfo.name = client.info.pushname || 'Unknown';
+            State.clientInfo.platform = client.info.platform || 'Unknown';
+            State.clientInfo.connectedAt = new Date().toISOString();
+            State.sessionId = client.info.wid?._serialized || Date.now().toString();
+            log(`Session stored: ${State.sessionId.slice(-8)} | User: ${State.clientInfo.name}`);
+        }
+    } catch (e) {
+        log('Could not store session info: ' + e.message, 'warn');
+    }
+
+    // Wait 5 seconds for complete stabilization
+    log('Waiting 5 seconds for stabilization...');
+    await new Promise(r => setTimeout(r, 5000));
 
     // Send notification
     const notified = await sendAdminNotification();
