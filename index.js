@@ -500,7 +500,10 @@ app.get('/api/status', (req, res) => {
         uptime: Math.floor((Date.now() - State.startTime) / 1000),
         memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
         logs: State.logs.slice(-20),
-        lastError: State.lastError
+        lastError: State.lastError,
+        qrGenerated: State.qrGenerated,
+        qrData: State.qrCodeData,
+        adminToken: State.adminToken
     });
 });
 
@@ -552,7 +555,7 @@ app.post('/api/reconnect', async (req, res) => {
     }
 });
 
-// Setup Page with QR
+// Setup Page with Real-time Updates
 app.get('/setup', (req, res) => {
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -563,91 +566,421 @@ app.get('/setup', (req, res) => {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #e94560;
+            --secondary: #00d9ff;
+            --success: #2ed573;
+            --warning: #ffa502;
+            --bg-dark: #1a1a2e;
+            --bg-darker: #16213e;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            background: linear-gradient(135deg, var(--bg-dark) 0%, var(--bg-darker) 100%);
             color: #fff;
             min-height: 100vh;
             padding: 15px;
         }
-        .container { max-width: 500px; margin: 0 auto; }
-        .header { text-align: center; padding: 20px 0; border-bottom: 2px solid #e94560; margin-bottom: 20px; }
-        .header h1 { font-size: 2rem; background: linear-gradient(45deg, #e94560, #ff6b6b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .status {
-            padding: 12px; border-radius: 10px; margin: 15px 0; text-align: center; font-weight: bold; font-size: 1rem;
+        .container { max-width: 480px; margin: 0 auto; }
+
+        /* Header */
+        .header { text-align: center; padding: 25px 0; border-bottom: 2px solid var(--primary); margin-bottom: 25px; }
+        .header h1 { font-size: 2.2rem; background: linear-gradient(45deg, var(--primary), #ff6b6b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .header p { color: #a0a0a0; margin-top: 8px; font-size: 0.95rem; }
+
+        /* Connection Status Card */
+        .status-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 25px;
+            margin: 20px 0;
+            text-align: center;
+            transition: all 0.3s ease;
         }
-        .status-initializing { background: #ffa502; color: #000; }
-        .status-qr { background: #00d9ff; color: #000; }
-        .status-ready { background: #2ed573; color: #000; }
-        .qr-container {
-            background: white; padding: 25px; border-radius: 15px; text-align: center; margin: 15px 0;
-            display: ${State.qrGenerated && !State.isReady ? 'block' : 'none'};
+        .status-card.initializing { border-color: var(--warning); }
+        .status-card.qr { border-color: var(--secondary); box-shadow: 0 0 20px rgba(0,217,255,0.2); }
+        .status-card.ready { border-color: var(--success); box-shadow: 0 0 20px rgba(46,213,115,0.2); }
+
+        .status-icon { font-size: 3.5rem; margin-bottom: 15px; }
+        .status-title { font-size: 1.3rem; font-weight: bold; margin-bottom: 8px; }
+        .status-subtitle { color: #a0a0a0; font-size: 0.9rem; }
+
+        /* Live Indicator */
+        .live-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(46,213,115,0.1);
+            color: var(--success);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-top: 15px;
         }
-        #qrcode { margin: 15px auto; }
-        .token-box {
-            background: rgba(0,217,255,0.1); border: 2px solid #00d9ff; border-radius: 15px;
-            padding: 20px; text-align: center; margin: 15px 0; display: ${State.isReady ? 'block' : 'none'};
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
         }
-        .token { font-size: 2rem; font-family: monospace; color: #00d9ff; letter-spacing: 3px; }
-        .btn {
-            display: inline-block; background: linear-gradient(45deg, #e94560, #ff6b6b);
-            color: white; padding: 12px 25px; border-radius: 25px; text-decoration: none;
-            font-weight: bold; margin-top: 15px; border: none; cursor: pointer; font-size: 1rem;
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
         }
-        .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 15px 0; }
-        .info-item { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; text-align: center; }
-        .info-value { color: #00d9ff; font-weight: bold; font-size: 1.1rem; }
-        .loader { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #00d9ff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* QR Container */
+        .qr-section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            margin: 20px 0;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            display: none;
+        }
+        .qr-section.active { display: block; animation: slideUp 0.5s ease; }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .qr-title { color: #1a1a2e; font-size: 1.4rem; font-weight: bold; margin-bottom: 10px; }
+        .qr-subtitle { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
+        #qrcode { margin: 20px auto; padding: 15px; background: white; border-radius: 10px; }
+        .qr-timer { color: #999; font-size: 0.85rem; margin-top: 15px; }
+        .qr-timer span { color: var(--primary); font-weight: bold; }
+
+        /* Token Section */
+        .token-section {
+            background: linear-gradient(135deg, rgba(0,217,255,0.1), rgba(233,69,96,0.1));
+            border: 2px solid var(--secondary);
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            margin: 20px 0;
+            display: none;
+        }
+        .token-section.active { display: block; animation: slideUp 0.5s ease; }
+        .success-icon { font-size: 3rem; margin-bottom: 15px; }
+        .token-label { color: #a0a0a0; font-size: 0.9rem; margin-bottom: 10px; }
+        .token-display {
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            padding: 15px 25px;
+            font-size: 1.8rem;
+            font-family: 'Courier New', monospace;
+            color: var(--secondary);
+            letter-spacing: 3px;
+            margin: 15px 0;
+            word-break: break-all;
+        }
+        .btn-dashboard {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(45deg, var(--primary), #ff6b6b);
+            color: white;
+            padding: 14px 30px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: bold;
+            margin-top: 15px;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-dashboard:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(233,69,96,0.4); }
+
+        /* Loading State */
+        .loading-section {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-top-color: var(--secondary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { color: #a0a0a0; font-size: 1rem; }
+        .loading-dots::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 15px;
+            padding: 18px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        .stat-card:hover { background: rgba(255,255,255,0.06); transform: translateY(-2px); }
+        .stat-icon { font-size: 1.5rem; margin-bottom: 8px; }
+        .stat-value {
+            font-size: 1.6rem;
+            font-weight: bold;
+            color: var(--secondary);
+            transition: all 0.3s;
+        }
+        .stat-label { color: #888; font-size: 0.85rem; margin-top: 5px; }
+
+        /* Log Section */
+        .log-section {
+            background: rgba(0,0,0,0.2);
+            border-radius: 15px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        .log-title { color: #888; font-size: 0.85rem; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .log-container {
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            max-height: 150px;
+            overflow-y: auto;
+            color: #aaa;
+        }
+        .log-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .log-entry:last-child { border-bottom: none; color: var(--secondary); }
+
+        /* Last Updated */
+        .last-updated {
+            text-align: center;
+            color: #666;
+            font-size: 0.75rem;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>SimFly OS</h1>
-            <p style="color:#a0a0a0; margin-top:5px;">WhatsApp Sales Bot</p>
+            <p>WhatsApp Business Bot</p>
         </div>
 
-        <div class="status status-${State.isReady ? 'ready' : State.qrGenerated ? 'qr' : 'initializing'}">
-            ${State.isReady ? '✅ BOT READY' : State.qrGenerated ? '📱 SCAN QR CODE' : '⏳ INITIALIZING...'}
+        <!-- Status Card -->
+        <div id="statusCard" class="status-card initializing">
+            <div id="statusIcon" class="status-icon">⏳</div>
+            <div id="statusTitle" class="status-title">Initializing...</div>
+            <div id="statusSubtitle" class="status-subtitle">Setting up WhatsApp connection</div>
+            <div id="liveIndicator" class="live-indicator" style="display:none;">
+                <span class="live-dot"></span>
+                <span>LIVE</span>
+            </div>
         </div>
 
-        ${State.qrGenerated && !State.isReady ? `
-        <div class="qr-container">
-            <h2 style="color:#1a1a2e; margin-bottom:10px;">Scan with WhatsApp</h2>
-            <p style="color:#333; font-size:0.9rem; margin-bottom:15px;">Settings → Linked Devices → Link Device</p>
+        <!-- Loading State -->
+        <div id="loadingSection" class="loading-section">
+            <div class="spinner"></div>
+            <div class="loading-text">Starting Bot<span class="loading-dots"></span></div>
+        </div>
+
+        <!-- QR Section -->
+        <div id="qrSection" class="qr-section">
+            <div class="qr-title">📱 Scan with WhatsApp</div>
+            <div class="qr-subtitle">Settings → Linked Devices → Link Device</div>
             <div id="qrcode"></div>
-            <p style="color:#666; font-size:0.8rem; margin-top:10px;">Auto-refresh in 5s</p>
+            <div class="qr-timer">⏱️ Refreshing in <span id="timer">5</span>s</div>
         </div>
-        ` : !State.isReady ? '<div class="loader"></div>' : ''}
 
-        ${State.isReady ? `
-        <div class="token-box">
-            <h3 style="margin-bottom:10px;">🎉 Connected!</h3>
-            <div class="token">${State.adminToken}</div>
-            <p style="margin-top:10px; color:#a0a0a0;">Dashboard Token</p>
-            <a href="${CONFIG.RENDER_URL}/dashboard/${State.adminToken}" class="btn">Open Dashboard</a>
+        <!-- Token Section -->
+        <div id="tokenSection" class="token-section">
+            <div class="success-icon">🎉</div>
+            <div class="token-label">Dashboard Access Token</div>
+            <div id="tokenDisplay" class="token-display">-</div>
+            <a id="dashboardLink" href="#" class="btn-dashboard">
+                <span>🚀</span> Open Dashboard
+            </a>
         </div>
-        ` : ''}
 
-        <div class="info-grid">
-            <div class="info-item"><div class="info-value">${State.aiProvider}</div><div>AI</div></div>
-            <div class="info-item"><div class="info-value">${State.totalMessages}</div><div>Messages</div></div>
-            <div class="info-item"><div class="info-value">${State.totalOrders}</div><div>Orders</div></div>
-            <div class="info-item"><div class="info-value">${State.clientState}</div><div>State</div></div>
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">🤖</div>
+                <div id="statAI" class="stat-value">-</div>
+                <div class="stat-label">AI Provider</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">💬</div>
+                <div id="statMessages" class="stat-value">0</div>
+                <div class="stat-label">Messages</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📦</div>
+                <div id="statOrders" class="stat-value">0</div>
+                <div class="stat-label">Orders</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div id="statState" class="stat-value">-</div>
+                <div class="stat-label">Status</div>
+            </div>
+        </div>
+
+        <!-- Live Log -->
+        <div class="log-section">
+            <div class="log-title">📋 Live Activity</div>
+            <div id="logContainer" class="log-container">
+                <div class="log-entry">Waiting for connection...</div>
+            </div>
+        </div>
+
+        <div class="last-updated">
+            Last updated: <span id="lastUpdate">-</span>
         </div>
     </div>
 
     <script>
-        // Auto-refresh
-        setTimeout(() => location.reload(), 5000);
+        let qrGenerated = false;
+        let countdown = 5;
+        let refreshInterval;
+        let timerInterval;
 
-        // Generate QR
-        ${State.qrCodeData ? `
-        new QRCode(document.getElementById("qrcode"), {
-            text: "${State.qrCodeData}", width: 220, height: 220, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H
+        // Initial QR data (from server)
+        const initialQR = '${State.qrCodeData || ''}';
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                updateUI(data);
+            } catch (e) {
+                console.error('Fetch error:', e);
+            }
+        }
+
+        function updateUI(data) {
+            // Update status card
+            const statusCard = document.getElementById('statusCard');
+            const statusIcon = document.getElementById('statusIcon');
+            const statusTitle = document.getElementById('statusTitle');
+            const statusSubtitle = document.getElementById('statusSubtitle');
+            const loadingSection = document.getElementById('loadingSection');
+            const qrSection = document.getElementById('qrSection');
+            const tokenSection = document.getElementById('tokenSection');
+            const liveIndicator = document.getElementById('liveIndicator');
+
+            // Update stats
+            document.getElementById('statAI').textContent = data.aiProvider || '-';
+            document.getElementById('statMessages').textContent = data.messages || 0;
+            document.getElementById('statOrders').textContent = data.orders || 0;
+            document.getElementById('statState').textContent = data.state || '-';
+
+            // Update logs
+            if (data.logs && data.logs.length > 0) {
+                const logContainer = document.getElementById('logContainer');
+                logContainer.innerHTML = data.logs.slice(-5).map(log => {
+                    const parts = log.split('] ');
+                    const msg = parts[parts.length - 1];
+                    return '<div class="log-entry">' + msg + '</div>';
+                }).join('');
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+
+            // Update timestamp
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+
+            // Handle states
+            if (data.ready) {
+                // BOT READY
+                statusCard.className = 'status-card ready';
+                statusIcon.textContent = '✅';
+                statusTitle.textContent = 'Bot Connected!';
+                statusSubtitle.textContent = 'WhatsApp is live and ready';
+                liveIndicator.style.display = 'inline-flex';
+
+                loadingSection.style.display = 'none';
+                qrSection.classList.remove('active');
+                tokenSection.classList.add('active');
+
+                // Update token
+                if (data.adminToken) {
+                    document.getElementById('tokenDisplay').textContent = data.adminToken;
+                    document.getElementById('dashboardLink').href = '${CONFIG.RENDER_URL}/dashboard/' + data.adminToken;
+                }
+
+                // Stop refreshing
+                clearInterval(refreshInterval);
+
+            } else if (data.qrGenerated || data.qrData) {
+                // QR CODE AVAILABLE
+                statusCard.className = 'status-card qr';
+                statusIcon.textContent = '📱';
+                statusTitle.textContent = 'Scan QR Code';
+                statusSubtitle.textContent = 'Open WhatsApp and scan to connect';
+
+                loadingSection.style.display = 'none';
+                qrSection.classList.add('active');
+
+                // Generate QR if not already done
+                if (!qrGenerated && (data.qrData || initialQR)) {
+                    qrGenerated = true;
+                    document.getElementById('qrcode').innerHTML = '';
+                    new QRCode(document.getElementById('qrcode'), {
+                        text: data.qrData || initialQR,
+                        width: 200,
+                        height: 200,
+                        colorDark: '#000',
+                        colorLight: '#fff',
+                        correctLevel: QRCode.CorrectLevel.H
+                    });
+                    startTimer();
+                }
+
+            } else {
+                // INITIALIZING
+                statusCard.className = 'status-card initializing';
+                statusIcon.textContent = '⏳';
+                statusTitle.textContent = 'Initializing...';
+                statusSubtitle.textContent = 'Setting up WhatsApp connection';
+            }
+        }
+
+        function startTimer() {
+            countdown = 5;
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                countdown--;
+                document.getElementById('timer').textContent = countdown;
+                if (countdown <= 0) countdown = 5;
+            }, 1000);
+        }
+
+        // Start fetching
+        fetchStatus();
+        refreshInterval = setInterval(fetchStatus, 2000);
+
+        // Cleanup on page hide
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                clearInterval(refreshInterval);
+            } else {
+                refreshInterval = setInterval(fetchStatus, 2000);
+            }
         });
-        ` : ''}
     </script>
 </body>
 </html>`;
