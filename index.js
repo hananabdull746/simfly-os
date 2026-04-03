@@ -71,8 +71,30 @@ RULES:
 TONE: Friendly Pakistani bhai style, helpful, sales-oriented`;
 
 // ============================================
-// FIREBASE SETUP (Simple JSON-based storage if Firebase not configured)
+// FIREBASE SETUP (Using Firebase Admin SDK)
 // ============================================
+let db = null;
+let firebaseInitialized = false;
+
+// Check for Firebase service account
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+        const admin = require('firebase-admin');
+        const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString());
+
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount)
+        });
+
+        db = admin.firestore();
+        firebaseInitialized = true;
+        console.log('✓ Firebase initialized with service account');
+    } catch (e) {
+        console.error('✗ Firebase init failed:', e.message);
+    }
+}
+
+// Fallback: Simple JSON-based storage
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -86,30 +108,97 @@ const DB = {
     users: {} // phone -> user data
 };
 
-// Load data from file
+// Firebase DB Helper Functions
+async function saveConversation(chatId, message) {
+    if (firebaseInitialized && db) {
+        try {
+            const admin = require('firebase-admin');
+            const convoRef = db.collection('conversations').doc(chatId);
+            const doc = await convoRef.get();
+            let messages = [];
+            if (doc.exists) {
+                messages = doc.data().messages || [];
+            }
+            messages.push(message);
+            if (messages.length > 50) messages = messages.slice(-50);
+            await convoRef.set({ messages, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+        } catch (e) {
+            console.error('Firebase save error:', e.message);
+        }
+    }
+    // Also save to local
+    if (!DB.conversations[chatId]) DB.conversations[chatId] = [];
+    DB.conversations[chatId].push(message);
+    if (DB.conversations[chatId].length > 50) {
+        DB.conversations[chatId] = DB.conversations[chatId].slice(-50);
+    }
+}
+
+async function updateUser(chatId, userData) {
+    if (firebaseInitialized && db) {
+        try {
+            await db.collection('users').doc(chatId).set(userData, { merge: true });
+        } catch (e) {
+            console.error('Firebase user update error:', e.message);
+        }
+    }
+    if (!DB.users[chatId]) DB.users[chatId] = {};
+    Object.assign(DB.users[chatId], userData);
+}
+
+async function incrementStats(field) {
+    if (firebaseInitialized && db) {
+        try {
+            const admin = require('firebase-admin');
+            const statsRef = db.collection('stats').doc('global');
+            await statsRef.update({ [field]: admin.firestore.FieldValue.increment(1) });
+        } catch (e) {
+            try {
+                await db.collection('stats').doc('global').set({ [field]: 1 }, { merge: true });
+            } catch (err) {}
+        }
+    }
+    DB.stats[field] = (DB.stats[field] || 0) + 1;
+}
+
+async function getConversation(chatId) {
+    if (firebaseInitialized && db) {
+        try {
+            const doc = await db.collection('conversations').doc(chatId).get();
+            if (doc.exists) return doc.data().messages || [];
+        } catch (e) {}
+    }
+    return DB.conversations[chatId] || [];
+}
+
+async function getAllStats() {
+    if (firebaseInitialized && db) {
+        try {
+            const doc = await db.collection('stats').doc('global').get();
+            if (doc.exists) return doc.data();
+        } catch (e) {}
+    }
+    return DB.stats;
+}
+
+// Local backup
 const DB_FILE = path.join(DATA_DIR, 'database.json');
 function loadDB() {
     try {
         if (fs.existsSync(DB_FILE)) {
             const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
             Object.assign(DB, data);
-            console.log('✓ Database loaded');
         }
-    } catch (e) {
-        console.error('Failed to load DB:', e.message);
-    }
+    } catch (e) {}
+    console.log(firebaseInitialized ? '✓ Firebase + Local JSON backup active' : '✓ Local JSON database active');
 }
 
-// Save data to file
 function saveDB() {
     try {
         fs.writeFileSync(DB_FILE, JSON.stringify(DB, null, 2));
-    } catch (e) {
-        console.error('Failed to save DB:', e.message);
-    }
+    } catch (e) {}
 }
 
-// Auto-save every 30 seconds
 setInterval(saveDB, 30000);
 loadDB();
 
@@ -154,8 +243,8 @@ async function generateAIResponse(userMessage, chatId) {
     // If Groq is available, use AI
     if (groqClient) {
         try {
-            // Get conversation history
-            const history = DB.conversations[chatId] || [];
+            // Get conversation history from Firebase
+            const history = await getConversation(chatId);
             const messages = [
                 { role: 'system', content: SYSTEM_PROMPT },
                 ...history.slice(-5).map(m => ({
@@ -165,7 +254,7 @@ async function generateAIResponse(userMessage, chatId) {
                 { role: 'user', content: userMessage }
             ];
 
-            const response = await groqClient.chat.completions.create({
+            const response = await groqClient.chat.conpletions.create({
                 model: 'llama-3.1-8b-instant',
                 messages: messages,
                 max_tokens: 500,
@@ -277,35 +366,22 @@ async function startWhatsApp() {
             // Log message
             log(`[${chatId}] ${body.slice(0, 50)}...`);
 
-            // Update stats
-            DB.stats.totalMessages++;
-            const today = new Date().toISOString().split('T')[0];
-            DB.stats.dailyStats[today] = (DB.stats.dailyStats[today] || 0) + 1;
+            // Update stats (Firebase + Local)
+            await incrementStats('totalMessages');
 
-            // Store in conversation history
-            if (!DB.conversations[chatId]) {
-                DB.conversations[chatId] = [];
-            }
-            DB.conversations[chatId].push({
+            // Store in Firebase + Local
+            await saveConversation(chatId, {
                 body: body,
                 fromMe: false,
                 timestamp: Date.now()
             });
 
-            // Limit history to last 50 messages
-            if (DB.conversations[chatId].length > 50) {
-                DB.conversations[chatId] = DB.conversations[chatId].slice(-50);
-            }
-
             // Store user info
-            if (!DB.users[chatId]) {
-                DB.users[chatId] = {
-                    firstSeen: Date.now(),
-                    messageCount: 0
-                };
-            }
-            DB.users[chatId].messageCount++;
-            DB.users[chatId].lastSeen = Date.now();
+            await updateUser(chatId, {
+                firstSeen: DB.users[chatId]?.firstSeen || Date.now(),
+                messageCount: (DB.users[chatId]?.messageCount || 0) + 1,
+                lastSeen: Date.now()
+            });
 
             // Only reply if ready
             if (!State.isReady) return;
@@ -323,7 +399,7 @@ async function startWhatsApp() {
 
                 // Store bot response
                 if (sent) {
-                    DB.conversations[chatId].push({
+                    await saveConversation(chatId, {
                         body: reply,
                         fromMe: true,
                         timestamp: Date.now()
@@ -337,7 +413,7 @@ async function startWhatsApp() {
                         const adminChat = `${CONFIG.ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
                         client.sendMessage(adminChat, `💰 Payment received from: ${chatId}\n\nCheck dashboard for details.`);
                     }
-                    DB.stats.totalOrders++;
+                    await incrementStats('totalOrders');
                 }
 
             } catch (e) {
@@ -409,12 +485,24 @@ app.get('/api/conversation/:chatId', (req, res) => {
 });
 
 // Get stats
-app.get('/api/stats', (req, res) => {
-    res.json({
-        stats: DB.stats,
-        users: Object.keys(DB.users).length,
-        uptime: Math.floor((Date.now() - State.startTime) / 1000)
-    });
+app.get('/api/stats', async (req, res) => {
+    try {
+        const stats = await getAllStats();
+        res.json({
+            stats: stats || DB.stats,
+            users: Object.keys(DB.users).length,
+            uptime: Math.floor((Date.now() - State.startTime) / 1000),
+            firebase: firebaseInitialized
+        });
+    } catch (e) {
+        res.json({
+            stats: DB.stats,
+            users: Object.keys(DB.users).length,
+            uptime: Math.floor((Date.now() - State.startTime) / 1000),
+            firebase: false,
+            error: e.message
+        });
+    }
 });
 
 // Send message via API
