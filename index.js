@@ -225,13 +225,10 @@ app.use((req, res, next) => {
     next();
 });
 
-// Health Check
+// Default Route - Setup Page (No more JSON!)
 app.get('/', (req, res) => {
-    res.json({
-        status: State.clientState,
-        ready: State.isReady,
-        uptime: Math.floor((Date.now() - State.startTime) / 1000)
-    });
+    // Redirect to setup page - same content, cleaner URL
+    res.redirect('/setup');
 });
 
 // API: Get Status
@@ -365,6 +362,9 @@ app.get('/setup', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>SimFly OS - WhatsApp Setup</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
@@ -921,7 +921,7 @@ app.get('/setup', (req, res) => {
 
         <!-- Footer -->
         <div class="footer">
-            SimFly OS v3.1 | Real-time Updates | <span id="lastUpdate">--:--</span>
+            SimFly OS v3.3 | Real-time Updates | <span id="lastUpdate">--:--</span> | Build: 20250403
         </div>
     </div>
 
@@ -1182,10 +1182,18 @@ app.get('/setup', (req, res) => {
             }
         }
 
-        // Start checking
-        console.log('Starting status polling...');
+        // Start checking immediately
+        console.log('SimFly OS: Starting status polling...');
+        console.log('Initial state: INITIALIZING - waiting for server...');
+
+        // First check immediately
         checkStatus();
+
+        // Then poll every 2 seconds
         checkInterval = setInterval(checkStatus, 2000);
+
+        // Log to UI immediately
+        logsList.innerHTML = '<div class="log-entry"><span class="log-time">' + new Date().toLocaleTimeString() + '</span> Connecting to server...</div>';
     </script>
 </body>
 </html>`);
