@@ -28,8 +28,10 @@ const CONFIG = {
 // ============================================
 const State = {
     isReady: false,
-    clientState: 'INITIALIZING', // INITIALIZING, QR_READY, AUTHENTICATED, READY, ERROR
+    clientState: 'INITIALIZING', // INITIALIZING, QR_READY, PAIRING_CODE_READY, AUTHENTICATED, READY, ERROR
     qrData: null,
+    pairingCode: null,
+    pairingNumber: null,
     qrGeneratedAt: null,
     logs: [],
     startTime: Date.now(),
@@ -108,6 +110,12 @@ async function initWhatsApp() {
             console.log('║      SCAN QR CODE BELOW           ║');
             console.log('╚════════════════════════════════════╝\n');
             qrcode.generate(qr, { small: true });
+        });
+
+        // PAIRING CODE EVENT (for phone number linking)
+        client.on('code', (code) => {
+            log(`Pairing code generated: ${code}`);
+            State.pairingCode = code;
         });
 
         // AUTHENTICATED
@@ -195,9 +203,57 @@ app.get('/api/status', (req, res) => {
         ready: State.isReady,
         qrGenerated: !!State.qrData,
         qrData: State.qrData,
+        pairingCode: State.pairingCode,
+        pairingNumber: State.pairingNumber,
         stats: State.stats,
         logs: State.logs.slice(0, 10)
     });
+});
+
+// API: Request Pairing Code (Link with phone number)
+app.post('/api/pairing-code', express.json(), async (req, res) => {
+    const { phoneNumber } = req.body;
+
+    if (!phoneNumber || !phoneNumber.match(/^\+?\d{10,15}$/)) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid phone number. Please include country code (e.g., +923001234567)'
+        });
+    }
+
+    if (!client || State.isReady) {
+        return res.status(400).json({
+            success: false,
+            error: 'Client not ready for pairing'
+        });
+    }
+
+    try {
+        // Format number (remove + if present)
+        const formattedNumber = phoneNumber.startsWith('+') ? phoneNumber.slice(1) : phoneNumber;
+        State.pairingNumber = phoneNumber;
+
+        // Request pairing code from WhatsApp
+        const code = await client.requestPairingCode(formattedNumber);
+
+        State.clientState = 'PAIRING_CODE_READY';
+        State.pairingCode = code;
+
+        log(`Pairing code requested for ${phoneNumber}`);
+
+        res.json({
+            success: true,
+            code: code,
+            phoneNumber: phoneNumber,
+            message: 'Enter this code in WhatsApp app: Settings > Linked Devices > Link with Phone Number'
+        });
+    } catch (error) {
+        log(`Pairing code error: ${error.message}`, 'error');
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
 });
 
 // ============================================
@@ -316,6 +372,151 @@ app.get('/setup', (req, res) => {
             0%, 20% { content: '.'; }
             40% { content: '..'; }
             60% { 100% { content: '...'; } }
+        }
+
+        /* Alternative Link Options */
+        .link-options {
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .link-divider {
+            display: flex;
+            align-items: center;
+            margin: 20px 0;
+            color: #666;
+            font-size: 0.85rem;
+        }
+
+        .link-divider::before,
+        .link-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(255,255,255,0.2);
+        }
+
+        .link-divider span {
+            padding: 0 15px;
+        }
+
+        .phone-link-container {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 24px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .phone-link-container.show {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .phone-link-title {
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+
+        .phone-link-desc {
+            color: #888;
+            font-size: 0.85rem;
+            margin-bottom: 20px;
+        }
+
+        .phone-input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .phone-input {
+            flex: 1;
+            padding: 14px 18px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            background: rgba(0,0,0,0.3);
+            color: #fff;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .phone-input:focus {
+            border-color: #3498db;
+        }
+
+        .phone-input::placeholder {
+            color: #666;
+        }
+
+        .btn-secondary {
+            padding: 14px 24px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            background: transparent;
+            color: #fff;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-secondary:hover {
+            border-color: #3498db;
+            background: rgba(52, 152, 219, 0.1);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pairing-code-display {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .pairing-code-label {
+            font-size: 0.85rem;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+
+        .pairing-code {
+            font-size: 2rem;
+            font-weight: bold;
+            letter-spacing: 8px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .pairing-instructions {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            text-align: left;
+            font-size: 0.85rem;
+            color: #ddd;
+        }
+
+        .pairing-instructions ol {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+
+        .pairing-instructions li {
+            margin: 5px 0;
+        }
+
+        .error-message {
+            color: #e74c3c;
+            font-size: 0.85rem;
+            margin-top: 10px;
         }
 
         /* QR Section */
@@ -526,6 +727,49 @@ app.get('/setup', (req, res) => {
                     <li>Point camera at this QR code</li>
                 </ol>
             </div>
+
+            <!-- Alternative: Link with Phone Number -->
+            <div class="link-divider">
+                <span>OR</span>
+            </div>
+
+            <button class="btn-secondary" onclick="showPhoneLink()">
+                📞 Link with Phone Number
+            </button>
+        </div>
+
+        <!-- Phone Number Link Section -->
+        <div id="phoneLinkSection" class="phone-link-container">
+            <div class="phone-link-title">📞 Link with Phone Number</div>
+            <div class="phone-link-desc">Enter your WhatsApp number to receive a pairing code</div>
+
+            <div class="phone-input-group">
+                <input type="tel" id="phoneInput" class="phone-input" placeholder="+923001234567" maxlength="16">
+                <button class="btn-primary" id="getCodeBtn" onclick="requestPairingCode()">Get Code</button>
+            </div>
+
+            <div id="phoneError" class="error-message" style="display: none;"></div>
+
+            <div id="pairingCodeDisplay" style="display: none;">
+                <div class="pairing-code-display">
+                    <div class="pairing-code-label">Your Pairing Code</div>
+                    <div class="pairing-code" id="pairingCodeValue">------</div>
+                </div>
+                <div class="pairing-instructions">
+                    <strong>How to use this code:</strong>
+                    <ol>
+                        <li>Open WhatsApp on your phone</li>
+                        <li>Tap <strong>Settings</strong> → <strong>Linked Devices</strong></li>
+                        <li>Tap <strong>Link with Phone Number</strong></li>
+                        <li>Enter this 6-digit code</li>
+                        <li>Tap <strong>Link Device</strong></li>
+                    </ol>
+                </div>
+            </div>
+
+            <button class="btn-secondary" onclick="showQRCode()" style="margin-top: 15px;">
+                ← Back to QR Code
+            </button>
         </div>
 
         <!-- Success -->
@@ -558,12 +802,79 @@ app.get('/setup', (req, res) => {
         const statusDesc = document.getElementById('statusDesc');
         const loadingSection = document.getElementById('loadingSection');
         const qrSection = document.getElementById('qrSection');
+        const phoneLinkSection = document.getElementById('phoneLinkSection');
         const successSection = document.getElementById('successSection');
         const logsList = document.getElementById('logsList');
         const lastUpdate = document.getElementById('lastUpdate');
+        const phoneInput = document.getElementById('phoneInput');
+        const phoneError = document.getElementById('phoneError');
+        const pairingCodeDisplay = document.getElementById('pairingCodeDisplay');
+        const pairingCodeValue = document.getElementById('pairingCodeValue');
+        const getCodeBtn = document.getElementById('getCodeBtn');
 
         let currentQR = null;
         let checkInterval = null;
+
+        // Show phone link section
+        function showPhoneLink() {
+            qrSection.classList.remove('show');
+            phoneLinkSection.classList.add('show');
+            phoneInput.focus();
+        }
+
+        // Show QR code section
+        function showQRCode() {
+            phoneLinkSection.classList.remove('show');
+            if (currentQR) {
+                qrSection.classList.add('show');
+            }
+        }
+
+        // Request pairing code from server
+        async function requestPairingCode() {
+            const phoneNumber = phoneInput.value.trim();
+
+            // Validate phone number
+            if (!phoneNumber || !phoneNumber.match(/^\+?\d{10,15}$/)) {
+                phoneError.textContent = 'Please enter a valid phone number with country code (e.g., +923001234567)';
+                phoneError.style.display = 'block';
+                return;
+            }
+
+            phoneError.style.display = 'none';
+            getCodeBtn.disabled = true;
+            getCodeBtn.textContent = 'Sending...';
+
+            try {
+                const res = await fetch('/api/pairing-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    pairingCodeValue.textContent = data.code;
+                    pairingCodeDisplay.style.display = 'block';
+                    logActivity(`Pairing code generated for ${phoneNumber}`);
+                } else {
+                    phoneError.textContent = data.error || 'Failed to generate code. Please try again.';
+                    phoneError.style.display = 'block';
+                }
+            } catch (e) {
+                phoneError.textContent = 'Network error. Please try again.';
+                phoneError.style.display = 'block';
+            } finally {
+                getCodeBtn.disabled = false;
+                getCodeBtn.textContent = 'Get Code';
+            }
+        }
+
+        // Allow Enter key to submit
+        phoneInput?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') requestPairingCode();
+        });
 
         // Update UI based on state
         function updateUI(data) {
@@ -596,6 +907,7 @@ app.get('/setup', (req, res) => {
                     statusDesc.textContent = 'Use WhatsApp on your phone to scan';
                     loadingSection.style.display = 'none';
                     successSection.classList.remove('show');
+                    phoneLinkSection.classList.remove('show');
 
                     // Show and generate QR
                     if (data.qrData && data.qrData !== currentQR) {
@@ -614,12 +926,29 @@ app.get('/setup', (req, res) => {
                     }
                     break;
 
+                case 'PAIRING_CODE_READY':
+                    statusBox.className = 'status-box state-qr';
+                    statusIcon.textContent = '🔢';
+                    statusTitle.textContent = 'Enter Pairing Code';
+                    statusDesc.textContent = 'Use Link with Phone Number option in WhatsApp';
+                    loadingSection.style.display = 'none';
+                    qrSection.classList.remove('show');
+
+                    // Show pairing code if received
+                    if (data.pairingCode && data.pairingCode !== pairingCodeValue.textContent) {
+                        pairingCodeValue.textContent = data.pairingCode;
+                        pairingCodeDisplay.style.display = 'block';
+                        phoneLinkSection.classList.add('show');
+                    }
+                    break;
+
                 case 'AUTHENTICATED':
                     statusBox.className = 'status-box state-qr';
                     statusIcon.textContent = '🔐';
                     statusTitle.textContent = 'Authenticating...';
                     statusDesc.textContent = 'Verifying your account';
                     qrSection.classList.remove('show');
+                    phoneLinkSection.classList.remove('show');
                     loadingSection.style.display = 'block';
                     break;
 
@@ -630,6 +959,7 @@ app.get('/setup', (req, res) => {
                     statusDesc.textContent = 'WhatsApp is ready to use';
                     loadingSection.style.display = 'none';
                     qrSection.classList.remove('show');
+                    phoneLinkSection.classList.remove('show');
                     successSection.classList.add('show');
 
                     // Stop checking
