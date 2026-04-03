@@ -21,6 +21,7 @@ const CONFIG = {
     ADMIN_NUMBER: process.env.ADMIN_NUMBER,
     RENDER_URL: process.env.RENDER_URL || `http://localhost:${process.env.PORT || 3000}`,
     GROQ_API_KEY: process.env.GROQ_API_KEY,
+    SESSION_DATA: process.env.SESSION_DATA, // Browser se copy kiya hua session
 };
 
 // ============================================
@@ -74,6 +75,32 @@ async function initWhatsApp() {
     try {
         const authPath = path.join(__dirname, '.wwebjs_auth');
         if (!fs.existsSync(authPath)) fs.mkdirSync(authPath, { recursive: true });
+
+        // ============================================
+        // SESSION HACK: Agar SESSION_DATA env var hai toh use karo
+        // ============================================
+        if (CONFIG.SESSION_DATA) {
+            log('Found SESSION_DATA in env, restoring session...');
+            try {
+                const sessionBuffer = Buffer.from(CONFIG.SESSION_DATA, 'base64');
+                const sessionZipPath = path.join(authPath, 'session-backup.zip');
+                fs.writeFileSync(sessionZipPath, sessionBuffer);
+
+                // Extract session files
+                const { execSync } = require('child_process');
+                try {
+                    execSync(`cd "${authPath}" && unzip -o session-backup.zip`, { stdio: 'ignore' });
+                    log('Session restored from env variable ✓');
+                } catch (e) {
+                    log('Session extract failed, will use QR code', 'warn');
+                }
+
+                // Cleanup zip
+                try { fs.unlinkSync(sessionZipPath); } catch(e) {}
+            } catch (e) {
+                log('SESSION_DATA parse failed: ' + e.message, 'error');
+            }
+        }
 
         let chromePath = null;
         try {
@@ -208,6 +235,68 @@ app.get('/api/status', (req, res) => {
         stats: State.stats,
         logs: State.logs.slice(0, 10)
     });
+});
+
+// ============================================
+// SESSION DATA RESTORE API
+// POST /api/restore-session with { sessionData: "base64string" }
+// ============================================
+app.post('/api/restore-session', express.json({ limit: '50mb' }), async (req, res) => {
+    const { sessionData } = req.body;
+
+    if (!sessionData) {
+        return res.status(400).json({ success: false, error: 'sessionData required' });
+    }
+
+    if (State.isReady || State.clientState === 'READY') {
+        return res.json({ success: false, error: 'Already connected. No need to restore.' });
+    }
+
+    try {
+        const authPath = path.join(__dirname, '.wwebjs_auth');
+        if (!fs.existsSync(authPath)) fs.mkdirSync(authPath, { recursive: true });
+
+        // Decode base64 session data
+        const sessionBuffer = Buffer.from(sessionData, 'base64');
+
+        // Save as zip and extract
+        const zipPath = path.join(authPath, 'session-restore.zip');
+        fs.writeFileSync(zipPath, sessionBuffer);
+
+        // Extract using built-in unzip if available
+        const { execSync } = require('child_process');
+        try {
+            // Try to extract
+            if (process.platform === 'win32') {
+                // Windows - use PowerShell
+                execSync(`powershell -command "Expand-Archive -Path '${zipPath}' -DestinationPath '${authPath}' -Force"`, { stdio: 'ignore' });
+            } else {
+                // Linux/Mac
+                execSync(`cd "${authPath}" && unzip -o session-restore.zip`, { stdio: 'ignore' });
+            }
+            log('Session restored from uploaded data ✓');
+
+            // Restart client to use restored session
+            if (client) {
+                log('Restarting client with restored session...');
+                await client.destroy().catch(() => {});
+                client = null;
+                isInitializing = false;
+                setTimeout(initWhatsApp, 2000);
+            }
+
+            res.json({ success: true, message: 'Session restored! Reconnecting...' });
+        } catch (e) {
+            res.status(500).json({ success: false, error: 'Failed to extract session: ' + e.message });
+        }
+
+        // Cleanup
+        try { fs.unlinkSync(zipPath); } catch(e) {}
+
+    } catch (error) {
+        log('Session restore error: ' + error.message, 'error');
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // API: Request Pairing Code (Link with phone number)
@@ -772,6 +861,37 @@ app.get('/setup', (req, res) => {
             </button>
         </div>
 
+        <!-- Session Restore Section (Hack) -->
+        <div id="sessionRestoreSection" class="phone-link-container" style="margin-top: 20px;">
+            <div class="phone-link-title">🔓 Restore Session (No QR Scan)</div>
+            <div class="phone-link-desc">Already logged in? Paste your session data here</div>
+
+            <div class="session-input-group" style="margin-bottom: 15px;">
+                <textarea id="sessionInput" class="phone-input" style="width: 100%; min-height: 80px; resize: vertical; font-family: monospace; font-size: 0.8rem;" placeholder="Paste base64 session data here..."></textarea>
+            </div>
+            <button class="btn-secondary" onclick="restoreSession()">🔑 Restore Session</button>
+
+            <div id="sessionError" class="error-message" style="display: none; margin-top: 10px;"></div>
+            <div id="sessionSuccess" style="display: none; color: #2ecc71; margin-top: 10px; font-size: 0.9rem;">
+                ✅ Session restored! Reconnecting...
+            </div>
+
+            <div class="pairing-instructions" style="margin-top: 20px;">
+                <strong>How to get session data:</strong>
+                <ol>
+                    <li>Open WhatsApp Web on your computer</li>
+                    <li>Open DevTools (F12) → Console</li>
+                    <li>Copy <code>.wwebjs_auth</code> folder</li>
+                    <li>Zip karo aur base64 mein convert karo</li>
+                    <li>Yahan paste karo & Restore dabao</li>
+                </ol>
+                <small style="color: #666; display: block; margin-top: 10px;">
+                    Tip: Local mein <code>.wwebjs_auth</code> folder ko zip karke base64 encode karo:
+                    <br><code style="color: #888;">zip -r session.zip .wwebjs_auth/<br>base64 session.zip</code>
+                </small>
+            </div>
+        </div>
+
         <!-- Success -->
         <div id="successSection" class="success-container">
             <div class="success-icon">✅</div>
@@ -879,6 +999,47 @@ app.get('/setup', (req, res) => {
         // Helper to log activity
         function logActivity(msg) {
             console.log('[Activity]', msg);
+        }
+
+        // Restore session from base64 data
+        async function restoreSession() {
+            const sessionInput = document.getElementById('sessionInput');
+            const sessionError = document.getElementById('sessionError');
+            const sessionSuccess = document.getElementById('sessionSuccess');
+            const sessionData = sessionInput.value.trim();
+
+            if (!sessionData) {
+                sessionError.textContent = 'Please paste session data';
+                sessionError.style.display = 'block';
+                sessionSuccess.style.display = 'none';
+                return;
+            }
+
+            sessionError.style.display = 'none';
+            sessionInput.disabled = true;
+
+            try {
+                const res = await fetch('/api/restore-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionData })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    sessionSuccess.style.display = 'block';
+                    logActivity('Session restored from backup');
+                } else {
+                    sessionError.textContent = data.error || 'Failed to restore session';
+                    sessionError.style.display = 'block';
+                }
+            } catch (e) {
+                sessionError.textContent = 'Network error: ' + e.message;
+                sessionError.style.display = 'block';
+            } finally {
+                sessionInput.disabled = false;
+            }
         }
 
         // Update UI based on state
