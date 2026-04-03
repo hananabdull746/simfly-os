@@ -790,7 +790,7 @@ app.get('/setup', (req, res) => {
 
         <!-- Footer -->
         <div class="footer">
-            SimFly OS v3.0 | Real-time Updates | <span id="lastUpdate">--:--</span>
+            SimFly OS v3.1 | Real-time Updates | <span id="lastUpdate">--:--</span>
         </div>
     </div>
 
@@ -875,6 +875,11 @@ app.get('/setup', (req, res) => {
         phoneInput?.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') requestPairingCode();
         });
+
+        // Helper to log activity
+        function logActivity(msg) {
+            console.log('[Activity]', msg);
+        }
 
         // Update UI based on state
         function updateUI(data) {
