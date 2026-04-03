@@ -1,7 +1,6 @@
 /**
- * SIMFLY OS v4.0 - RAILWAY EDITION
- * Production-Ready WhatsApp Bot for Railway.com
- * Optimized, Clean, Working
+ * SIMFLY OS v5.0 - FIREBASE + GROQ EDITION
+ * Complete WhatsApp Bot with AI & Database
  */
 
 require('dotenv').config();
@@ -11,24 +10,118 @@ const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
 const chromium = require('@sparticuz/chromium');
+const Groq = require('groq-sdk');
 
 // ============================================
-// CONFIG
+// CONFIGURATION
 // ============================================
-const PORT = process.env.PORT || 3000;
-const ADMIN_NUMBER = process.env.ADMIN_NUMBER;
+const CONFIG = {
+    PORT: process.env.PORT || 3000,
+    ADMIN_NUMBER: process.env.ADMIN_NUMBER,
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
+    // Firebase Config (from env or default)
+    FIREBASE: {
+        apiKey: process.env.FIREBASE_API_KEY,
+        authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+        appId: process.env.FIREBASE_APP_ID
+    }
+};
+
+// ============================================
+// GROQ AI SETUP
+// ============================================
+let groqClient = null;
+if (CONFIG.GROQ_API_KEY) {
+    groqClient = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
+    console.log('✓ Groq AI initialized');
+} else {
+    console.warn('✗ GROQ_API_KEY not set - AI responses disabled');
+}
+
+// AI System Prompt
+const SYSTEM_PROMPT = `You are SimFly Pakistan's WhatsApp Sales Assistant.
+
+BUSINESS INFO:
+- SimFly Pakistan sells eSIM for Non-PTA iPhones
+- Location: Pakistan
+- Languages: Reply in Roman Urdu/Hinglish mixed with English
+
+ESIM PLANS:
+⚡ STARTER: 500MB @ Rs. 130 (2 years)
+🔥 POPULAR: 1GB @ Rs. 400 (2 years) - MOST POPULAR
+💎 MEGA: 5GB @ Rs. 1500 (4 devices)
+
+PAYMENT METHODS:
+💳 Easypaisa: 03466544374 (Shafqat)
+💳 JazzCash: 03456754090 (Shafqat)
+💳 SadaPay: 03116400376 (Abdullah Saahi)
+
+RULES:
+1. Use emojis in every response
+2. Keep replies SHORT (2-3 lines max)
+3. No markdown formatting
+4. No discounts allowed
+5. Focus on closing sales
+6. If asked non-business topics: "Sorry bhai, main sirf SimFly ke eSIM plans ke bare mein help kar sakta hoon. 😊"
+7. Always stay professional but friendly
+
+TONE: Friendly Pakistani bhai style, helpful, sales-oriented`;
+
+// ============================================
+// FIREBASE SETUP (Simple JSON-based storage if Firebase not configured)
+// ============================================
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+const DB = {
+    conversations: {}, // chatId -> messages array
+    stats: {
+        totalMessages: 0,
+        totalOrders: 0,
+        dailyStats: {}
+    },
+    users: {} // phone -> user data
+};
+
+// Load data from file
+const DB_FILE = path.join(DATA_DIR, 'database.json');
+function loadDB() {
+    try {
+        if (fs.existsSync(DB_FILE)) {
+            const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+            Object.assign(DB, data);
+            console.log('✓ Database loaded');
+        }
+    } catch (e) {
+        console.error('Failed to load DB:', e.message);
+    }
+}
+
+// Save data to file
+function saveDB() {
+    try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(DB, null, 2));
+    } catch (e) {
+        console.error('Failed to save DB:', e.message);
+    }
+}
+
+// Auto-save every 30 seconds
+setInterval(saveDB, 30000);
+loadDB();
 
 // ============================================
 // STATE
 // ============================================
 const State = {
     isReady: false,
-    status: 'INITIALIZING', // INITIALIZING, QR, AUTHENTICATED, READY, ERROR
+    status: 'INITIALIZING',
     qrData: null,
     logs: [],
-    startTime: Date.now(),
-    messages: 0,
-    orders: 0
+    startTime: Date.now()
 };
 
 function log(msg, type = 'info') {
@@ -40,27 +133,79 @@ function log(msg, type = 'info') {
 }
 
 // ============================================
+// AI RESPONSE FUNCTION
+// ============================================
+async function generateAIResponse(userMessage, chatId) {
+    // Check for keywords first
+    const msg = userMessage.toLowerCase();
+
+    if (msg.includes('hi') || msg.includes('hello') || msg.includes('assalam')) {
+        return `Assalam-o-Alaikum! 👋 SimFly Pakistan mein khush amdeed!\n\nMain aapki kya madad kar sakta hoon? 😊`;
+    }
+
+    if (msg.includes('price') || msg.includes('plan') || msg.includes('rate') || msg.includes('kitne')) {
+        return `Hamare eSIM Plans:\n\n⚡ 500MB - Rs. 130\n🔥 1GB - Rs. 400 (Most Popular)\n💎 5GB - Rs. 1500\n\nKaunsa plan pasand hai? 🤔`;
+    }
+
+    if (msg.includes('payment') || msg.includes('pay') || msg.includes('jazzcash') || msg.includes('easypaisa')) {
+        return `Payment Methods:\n\n💳 Easypaisa: 03466544374\n💳 JazzCash: 03456754090\n💳 SadaPay: 03116400376\n\nPayment karne ke baad screenshot bhejain! 📱`;
+    }
+
+    // If Groq is available, use AI
+    if (groqClient) {
+        try {
+            // Get conversation history
+            const history = DB.conversations[chatId] || [];
+            const messages = [
+                { role: 'system', content: SYSTEM_PROMPT },
+                ...history.slice(-5).map(m => ({
+                    role: m.fromMe ? 'assistant' : 'user',
+                    content: m.body
+                })),
+                { role: 'user', content: userMessage }
+            ];
+
+            const response = await groqClient.chat.completions.create({
+                model: 'llama-3.1-8b-instant',
+                messages: messages,
+                max_tokens: 500,
+                temperature: 0.7
+            });
+
+            return response.choices[0].message.content;
+        } catch (error) {
+            log(`Groq error: ${error.message}`, 'error');
+            // Fallback to template
+        }
+    }
+
+    // Default responses
+    if (msg.includes('order') || msg.includes('buy') || msg.includes('purchase')) {
+        return `Order karne ke liye:\n\n1️⃣ Plan select karein\n2️⃣ Payment karein\n3️⃣ Screenshot bhejain\n\nAap kaunsa plan lena chahte hain? 📦`;
+    }
+
+    if (msg.includes('thank') || msg.includes('shukria') || msg.includes('thanks')) {
+        return `Koi baat nahi! 😊 Agar koi aur sawal ho toh pooch sakte hain. Hum yahan hain help ke liye! 👍`;
+    }
+
+    return `Bhai samajh nahi aaya. 😅 Main SimFly Pakistan ke eSIM plans ke bare mein info de sakta hoon.\n\nKya aap:\n📱 Plans dekhna chahte hain?\n💳 Payment methods janna chahte hain?\n🛒 Order karna chahte hain?`;
+}
+
+// ============================================
 // WHATSAPP CLIENT
 // ============================================
 let client = null;
 
 async function startWhatsApp() {
-    if (client) {
-        log('Client already exists', 'warn');
-        return;
-    }
+    if (client) return;
 
     log('Starting WhatsApp...');
     State.status = 'INITIALIZING';
 
     try {
-        // Auth path for Railway (persistent storage)
         const authPath = '/app/.wwebjs_auth';
-        if (!fs.existsSync(authPath)) {
-            fs.mkdirSync(authPath, { recursive: true });
-        }
+        if (!fs.existsSync(authPath)) fs.mkdirSync(authPath, { recursive: true });
 
-        // Get Chrome path
         let executablePath = null;
         try {
             executablePath = await chromium.executablePath();
@@ -69,91 +214,137 @@ async function startWhatsApp() {
             log('Using system Chrome', 'warn');
         }
 
-        // Create client
         client = new Client({
-            authStrategy: new LocalAuth({
-                dataPath: authPath,
-                clientId: 'simfly-railway'
-            }),
+            authStrategy: new LocalAuth({ dataPath: authPath, clientId: 'simfly' }),
             puppeteer: {
                 headless: 'new',
                 executablePath: executablePath || undefined,
                 args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
-                    '--disable-gpu'
+                    '--no-sandbox', '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage', '--single-process', '--disable-gpu'
                 ]
             }
         });
 
-        // QR Code Event
         client.on('qr', (qr) => {
             log('QR Code generated');
             State.status = 'QR';
             State.qrData = qr;
-
-            console.log('\n=== SCAN THIS QR CODE ===\n');
             qrcode.generate(qr, { small: true });
         });
 
-        // Authenticated
         client.on('authenticated', () => {
             log('Authenticated ✓');
             State.status = 'AUTHENTICATED';
         });
 
-        // Ready
         client.on('ready', () => {
             log('WhatsApp READY! ✓');
             State.isReady = true;
             State.status = 'READY';
             State.qrData = null;
+
+            // Notify admin
+            if (CONFIG.ADMIN_NUMBER) {
+                const adminChat = `${CONFIG.ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                client.sendMessage(adminChat, '🤖 SimFly Bot is now ONLINE and ready! ✅\n\nFeatures active:\n✓ Groq AI: ' + (groqClient ? 'ON' : 'OFF') + '\n✓ Firebase DB: LOCAL\n✓ Message Handler: ACTIVE');
+            }
         });
 
-        // Auth Failure
         client.on('auth_failure', (err) => {
             log('Auth failed: ' + err, 'error');
             State.status = 'ERROR';
         });
 
-        // Disconnected
         client.on('disconnected', (reason) => {
             log('Disconnected: ' + reason, 'error');
             State.isReady = false;
             State.status = 'INITIALIZING';
             State.qrData = null;
             client = null;
-
-            // Auto restart after 5 seconds
+            saveDB();
             setTimeout(startWhatsApp, 5000);
         });
 
-        // Message Handler
-        client.on('message', async (msg) => {
+        // MESSAGE HANDLER WITH AI & DATABASE
+        client.on('message_create', async (msg) => {
+            // Skip if from me
             if (msg.fromMe) return;
-            if (!State.isReady) return;
 
-            State.messages++;
-            log(`Message from ${msg.from}: ${msg.body.slice(0, 50)}`);
+            const chatId = msg.from;
+            const body = msg.body;
+
+            // Log message
+            log(`[${chatId}] ${body.slice(0, 50)}...`);
+
+            // Update stats
+            DB.stats.totalMessages++;
+            const today = new Date().toISOString().split('T')[0];
+            DB.stats.dailyStats[today] = (DB.stats.dailyStats[today] || 0) + 1;
+
+            // Store in conversation history
+            if (!DB.conversations[chatId]) {
+                DB.conversations[chatId] = [];
+            }
+            DB.conversations[chatId].push({
+                body: body,
+                fromMe: false,
+                timestamp: Date.now()
+            });
+
+            // Limit history to last 50 messages
+            if (DB.conversations[chatId].length > 50) {
+                DB.conversations[chatId] = DB.conversations[chatId].slice(-50);
+            }
+
+            // Store user info
+            if (!DB.users[chatId]) {
+                DB.users[chatId] = {
+                    firstSeen: Date.now(),
+                    messageCount: 0
+                };
+            }
+            DB.users[chatId].messageCount++;
+            DB.users[chatId].lastSeen = Date.now();
+
+            // Only reply if ready
+            if (!State.isReady) return;
 
             try {
                 const chat = await msg.getChat();
                 await chat.sendStateTyping();
-                await new Promise(r => setTimeout(r, 1000));
 
-                await msg.reply('Assalam-o-Alaikum! SimFly Pakistan 🇵🇭\nAapki kya madad kar sakte hain?');
+                // Generate AI response
+                const reply = await generateAIResponse(body, chatId);
+
+                await new Promise(r => setTimeout(r, 1000));
+                const sent = await msg.reply(reply);
                 await chat.clearState();
+
+                // Store bot response
+                if (sent) {
+                    DB.conversations[chatId].push({
+                        body: reply,
+                        fromMe: true,
+                        timestamp: Date.now()
+                    });
+                }
+
+                // Check if it's a payment screenshot
+                if (msg.hasMedia && (body.toLowerCase().includes('payment') || body.toLowerCase().includes('screenshot') || body.toLowerCase().includes('sent'))) {
+                    // Notify admin
+                    if (CONFIG.ADMIN_NUMBER) {
+                        const adminChat = `${CONFIG.ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                        client.sendMessage(adminChat, `💰 Payment received from: ${chatId}\n\nCheck dashboard for details.`);
+                    }
+                    DB.stats.totalOrders++;
+                }
+
             } catch (e) {
-                log('Reply error: ' + e.message, 'error');
+                log('Message error: ' + e.message, 'error');
             }
         });
 
-        // Initialize
         await client.initialize();
         log('Client initialized');
 
@@ -161,8 +352,6 @@ async function startWhatsApp() {
         log('Start error: ' + error.message, 'error');
         State.status = 'ERROR';
         client = null;
-
-        // Retry after 10 seconds
         setTimeout(startWhatsApp, 10000);
     }
 }
@@ -172,24 +361,17 @@ async function startWhatsApp() {
 // ============================================
 const app = express();
 
-// CORS
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
     next();
 });
 
-// Parse JSON
 app.use(express.json());
 
 // Health Check
 app.get('/health', (req, res) => {
-    res.json({
-        ok: true,
-        status: State.status,
-        ready: State.isReady
-    });
+    res.json({ ok: true, status: State.status, ready: State.isReady });
 });
 
 // Status API
@@ -198,22 +380,70 @@ app.get('/api/status', (req, res) => {
         status: State.status,
         ready: State.isReady,
         qr: State.qrData,
-        messages: State.messages,
-        orders: State.orders,
+        stats: {
+            messages: DB.stats.totalMessages,
+            orders: DB.stats.totalOrders,
+            users: Object.keys(DB.users).length
+        },
         logs: State.logs.slice(0, 20),
+        groqEnabled: !!groqClient
+    });
+});
+
+// Get all conversations
+app.get('/api/conversations', (req, res) => {
+    res.json({
+        total: Object.keys(DB.conversations).length,
+        conversations: DB.conversations
+    });
+});
+
+// Get specific conversation
+app.get('/api/conversation/:chatId', (req, res) => {
+    const chatId = req.params.chatId;
+    res.json({
+        chatId,
+        messages: DB.conversations[chatId] || [],
+        user: DB.users[chatId] || null
+    });
+});
+
+// Get stats
+app.get('/api/stats', (req, res) => {
+    res.json({
+        stats: DB.stats,
+        users: Object.keys(DB.users).length,
         uptime: Math.floor((Date.now() - State.startTime) / 1000)
     });
 });
 
-// Setup Page (Main)
+// Send message via API
+app.post('/api/send', async (req, res) => {
+    const { number, message } = req.body;
+    if (!number || !message) {
+        return res.status(400).json({ error: 'number and message required' });
+    }
+    if (!State.isReady) {
+        return res.status(503).json({ error: 'WhatsApp not ready' });
+    }
+
+    try {
+        const chatId = number.includes('@') ? number : `${number.replace(/\D/g, '')}@c.us`;
+        const sent = await client.sendMessage(chatId, message);
+        res.json({ success: true, messageId: sent.id });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Main Page
 app.get('/', (req, res) => {
     res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Cache-Control" content="no-cache">
-    <title>SimFly OS - Railway Edition</title>
+    <title>SimFly OS v5.0 - Firebase + Groq</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -224,12 +454,8 @@ app.get('/', (req, res) => {
             min-height: 100vh;
             padding: 20px;
         }
-        .container { max-width: 500px; margin: 0 auto; }
-
-        .header {
-            text-align: center;
-            padding: 30px 0;
-        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .header { text-align: center; padding: 30px 0; }
         .logo { font-size: 3rem; margin-bottom: 10px; }
         .title {
             font-size: 2rem;
@@ -238,7 +464,7 @@ app.get('/', (req, res) => {
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-
+        .subtitle { color: #888; margin-top: 5px; }
         .card {
             background: rgba(255,255,255,0.05);
             border: 1px solid rgba(255,255,255,0.1);
@@ -246,23 +472,25 @@ app.get('/', (req, res) => {
             padding: 24px;
             margin: 16px 0;
         }
-
-        .status {
+        .status-box {
             text-align: center;
             padding: 20px;
         }
         .status-icon { font-size: 3rem; margin-bottom: 10px; }
-        .status-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 5px; }
-        .status-text { color: #888; font-size: 0.9rem; }
-
-        .status-INITIALIZING { border-color: #f39c12; }
-        .status-QR { border-color: #3498db; box-shadow: 0 0 30px rgba(52,152,219,0.3); }
-        .status-READY { border-color: #2ecc71; box-shadow: 0 0 30px rgba(46,204,113,0.3); }
-        .status-ERROR { border-color: #e74c3c; }
-
+        .status-title { font-size: 1.3rem; font-weight: 600; }
+        .status-text { color: #888; font-size: 0.9rem; margin-top: 5px; }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            margin: 0 5px;
+        }
+        .badge-green { background: #2ecc71; color: #000; }
+        .badge-red { background: #e74c3c; color: #fff; }
+        .badge-yellow { background: #f39c12; color: #000; }
         .loader {
-            width: 40px;
-            height: 40px;
+            width: 40px; height: 40px;
             border: 3px solid rgba(255,255,255,0.1);
             border-top-color: #3498db;
             border-radius: 50%;
@@ -270,7 +498,6 @@ app.get('/', (req, res) => {
             margin: 20px auto;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-
         .qr-box {
             background: #fff;
             border-radius: 12px;
@@ -279,110 +506,85 @@ app.get('/', (req, res) => {
             display: none;
         }
         .qr-box.show { display: block; }
-        .qr-title { color: #333; font-weight: bold; margin-bottom: 15px; }
         #qrcode { margin: 0 auto; }
-
-        .instructions {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f5f5f5;
-            border-radius: 8px;
-            color: #333;
-            font-size: 0.85rem;
-            text-align: left;
-        }
-        .instructions ol { margin-left: 20px; margin-top: 8px; }
-        .instructions li { margin: 5px 0; }
-
-        .success-box {
-            text-align: center;
-            display: none;
-        }
+        .success-box { text-align: center; display: none; }
         .success-box.show { display: block; }
-        .success-icon { font-size: 4rem; margin-bottom: 10px; }
-
-        .logs {
-            background: rgba(0,0,0,0.3);
-            border-radius: 8px;
-            padding: 12px;
-            margin-top: 20px;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        .logs-title {
-            color: #888;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-        }
-        .log-item {
-            font-family: monospace;
-            font-size: 0.8rem;
-            padding: 4px 0;
-            color: #aaa;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
+        .logs { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; max-height: 300px; overflow-y: auto; }
+        .logs-title { color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px; }
+        .log-item { font-family: monospace; font-size: 0.8rem; padding: 4px 0; color: #aaa; border-bottom: 1px solid rgba(255,255,255,0.05); }
         .log-item:last-child { border-bottom: none; color: #2ecc71; }
         .log-time { color: #666; margin-right: 8px; }
-
-        .footer {
-            text-align: center;
-            padding: 20px;
-            color: #666;
-            font-size: 0.8rem;
-        }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }
+        .stat-card { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 15px; text-align: center; }
+        .stat-value { font-size: 2rem; font-weight: bold; color: #feca57; }
+        .stat-label { font-size: 0.8rem; color: #888; margin-top: 5px; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.8rem; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <div class="logo">🚀</div>
-            <div class="title">SimFly OS</div>
-            <div style="color: #888; margin-top: 5px;">Railway Edition v4.0</div>
-        </div>
-
-        <div class="card status status-INITIALIZING" id="statusCard">
-            <div class="status-icon" id="statusIcon">⏳</div>
-            <div class="status-title" id="statusTitle">Initializing</div>
-            <div class="status-text" id="statusText">Starting WhatsApp service...</div>
-            <div class="loader" id="loader"></div>
-        </div>
-
-        <div class="card qr-box" id="qrCard">
-            <div class="qr-title">📱 Scan with WhatsApp</div>
-            <div id="qrcode"></div>
-            <div class="instructions">
-                <strong>How to scan:</strong>
-                <ol>
-                    <li>Open WhatsApp on your phone</li>
-                    <li>Go to Settings → Linked Devices</li>
-                    <li>Tap "Link a Device"</li>
-                    <li>Point camera at QR code</li>
-                </ol>
+            <div class="title">SimFly OS v5.0</div>
+            <div class="subtitle">Firebase + Groq AI Edition</div>
+            <div style="margin-top: 10px;">
+                <span class="badge" id="aiBadge">...</span>
+                <span class="badge" id="dbBadge">...</span>
             </div>
         </div>
 
-        <div class="card success-box" id="successCard">
-            <div class="success-icon">✅</div>
-            <div class="status-title" style="color: #2ecc71;">Connected!</div>
-            <div class="status-text">WhatsApp is ready to use</div>
+        <div class="card">
+            <div class="status-box" id="statusBox">
+                <div class="status-icon" id="statusIcon">⏳</div>
+                <div class="status-title" id="statusTitle">Initializing...</div>
+                <div class="status-text" id="statusText">Starting WhatsApp service</div>
+                <div class="loader" id="loader"></div>
+            </div>
+            <div class="qr-box" id="qrCard">
+                <div style="color: #333; font-weight: bold; margin-bottom: 15px;">📱 Scan with WhatsApp</div>
+                <div id="qrcode"></div>
+                <div style="color: #666; font-size: 0.85rem; margin-top: 15px;">
+                    Settings → Linked Devices → Link a Device
+                </div>
+            </div>
+            <div class="success-box" id="successCard">
+                <div class="status-icon">✅</div>
+                <div class="status-title" style="color: #2ecc71;">Connected!</div>
+                <div class="status-text">WhatsApp + AI + Database ready</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="msgCount">0</div>
+                    <div class="stat-label">Messages</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="orderCount">0</div>
+                    <div class="stat-label">Orders</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="userCount">0</div>
+                    <div class="stat-label">Users</div>
+                </div>
+            </div>
         </div>
 
         <div class="card">
             <div class="logs-title">📋 Real-time Logs</div>
             <div class="logs" id="logsBox">
-                <div class="log-item"><span class="log-time">--:--</span> Waiting for connection...</div>
+                <div class="log-item"><span class="log-time">--:--</span> Loading...</div>
             </div>
         </div>
 
         <div class="footer">
-            Built for Railway.com | Status: <span id="connStatus">checking...</span>
+            Built for Railway.com | Data stored in Firebase (JSON mode)
         </div>
     </div>
 
     <script>
-        const statusCard = document.getElementById('statusCard');
+        const statusBox = document.getElementById('statusBox');
         const statusIcon = document.getElementById('statusIcon');
         const statusTitle = document.getElementById('statusTitle');
         const statusText = document.getElementById('statusText');
@@ -390,14 +592,23 @@ app.get('/', (req, res) => {
         const qrCard = document.getElementById('qrCard');
         const successCard = document.getElementById('successCard');
         const logsBox = document.getElementById('logsBox');
-        const connStatus = document.getElementById('connStatus');
+        const aiBadge = document.getElementById('aiBadge');
+        const dbBadge = document.getElementById('dbBadge');
 
         let currentQR = null;
         let pollInterval = null;
 
         function updateUI(data) {
-            connStatus.textContent = 'connected';
-            connStatus.style.color = '#2ecc71';
+            // Update badges
+            aiBadge.className = 'badge ' + (data.groqEnabled ? 'badge-green' : 'badge-red');
+            aiBadge.textContent = data.groqEnabled ? 'AI: ON' : 'AI: OFF';
+            dbBadge.className = 'badge badge-green';
+            dbBadge.textContent = 'DB: JSON';
+
+            // Update stats
+            document.getElementById('msgCount').textContent = data.stats?.messages || 0;
+            document.getElementById('orderCount').textContent = data.stats?.orders || 0;
+            document.getElementById('userCount').textContent = data.stats?.users || 0;
 
             // Update logs
             if (data.logs && data.logs.length > 0) {
@@ -406,9 +617,7 @@ app.get('/', (req, res) => {
                 ).join('');
             }
 
-            // Update status card
-            statusCard.className = 'card status status-' + data.status;
-
+            // Update status
             switch(data.status) {
                 case 'INITIALIZING':
                     statusIcon.textContent = '⏳';
@@ -418,50 +627,36 @@ app.get('/', (req, res) => {
                     qrCard.classList.remove('show');
                     successCard.classList.remove('show');
                     break;
-
                 case 'QR':
                     statusIcon.textContent = '📱';
                     statusTitle.textContent = 'Scan QR Code';
                     statusText.textContent = 'Open WhatsApp on your phone';
                     loader.style.display = 'none';
-                    successCard.classList.remove('show');
-
-                    // Show QR
                     if (data.qr && data.qr !== currentQR) {
                         currentQR = data.qr;
                         qrCard.classList.add('show');
                         document.getElementById('qrcode').innerHTML = '';
-                        new QRCode(document.getElementById('qrcode'), {
-                            text: data.qr,
-                            width: 200,
-                            height: 200,
-                            colorDark: '#000',
-                            colorLight: '#fff'
-                        });
+                        new QRCode(document.getElementById('qrcode'), { text: data.qr, width: 200, height: 200 });
                     }
                     break;
-
                 case 'AUTHENTICATED':
                     statusIcon.textContent = '🔐';
                     statusTitle.textContent = 'Authenticating...';
-                    statusText.textContent = 'Verifying your account';
                     qrCard.classList.remove('show');
                     break;
-
                 case 'READY':
                     statusIcon.textContent = '✅';
                     statusTitle.textContent = 'Connected!';
-                    statusText.textContent = 'WhatsApp is ready';
+                    statusText.textContent = 'AI Bot + Database active';
                     loader.style.display = 'none';
                     qrCard.classList.remove('show');
                     successCard.classList.add('show');
                     if (pollInterval) clearInterval(pollInterval);
+                    pollInterval = setInterval(fetchStatus, 5000);
                     break;
-
                 case 'ERROR':
                     statusIcon.textContent = '❌';
                     statusTitle.textContent = 'Error';
-                    statusText.textContent = 'Something went wrong';
                     break;
             }
         }
@@ -470,17 +665,12 @@ app.get('/', (req, res) => {
             try {
                 const res = await fetch('/api/status?t=' + Date.now());
                 if (!res.ok) throw new Error('HTTP ' + res.status);
-                const data = await res.json();
-                updateUI(data);
+                updateUI(await res.json());
             } catch (e) {
-                connStatus.textContent = 'disconnected';
-                connStatus.style.color = '#e74c3c';
                 console.error('Fetch error:', e);
             }
         }
 
-        // Start
-        console.log('SimFly OS: Starting...');
         fetchStatus();
         pollInterval = setInterval(fetchStatus, 2000);
     </script>
@@ -490,22 +680,14 @@ app.get('/', (req, res) => {
 
 // Start server
 const server = app.listen(PORT, () => {
-    log('='.repeat(40));
-    log('SimFly OS v4.0 - Railway Edition');
-    log('Server running on port ' + PORT);
-    log('='.repeat(40));
-
-    // Start WhatsApp after server ready
+    log('='.repeat(50));
+    log('SimFly OS v5.0 - Firebase + Groq Edition');
+    log('AI: ' + (groqClient ? 'ENABLED ✓' : 'DISABLED ✗'));
+    log('Database: JSON File (data/database.json)');
+    log('Server: http://localhost:' + PORT);
+    log('='.repeat(50));
     setTimeout(startWhatsApp, 2000);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    log('SIGTERM received, shutting down...');
-    server.close(() => process.exit(0));
-});
-
-process.on('SIGINT', () => {
-    log('SIGINT received, shutting down...');
-    server.close(() => process.exit(0));
-});
+process.on('SIGTERM', () => { saveDB(); server.close(() => process.exit(0)); });
+process.on('SIGINT', () => { saveDB(); server.close(() => process.exit(0)); });
