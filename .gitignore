@@ -2,8 +2,8 @@
 node_modules/
 package-lock.json
 
-# Environment variables
-.env
+# Local Database (contains runtime data)
+data/
 
 # WhatsApp Web Auth Session
 .wwebjs_auth/

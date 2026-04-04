@@ -1,8 +1,0 @@
-# Northflank specific ignore
-.git
-.github
-node_modules
-*.log
-.DS_Store
-.vscode
-.idea
