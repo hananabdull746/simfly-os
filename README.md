@@ -1,79 +1,107 @@
-# SimFly OS v1.0.0
+# SimFly OS v6.0 - Simple .env Edition
 
 Production-Ready WhatsApp Sales Bot with AI Integration for SimFly Pakistan (eSIM Provider).
 
-## Features
+## 🚀 Quick Setup (Only .env file needed!)
 
-- WhatsApp Business Automation via `whatsapp-web.js`
-- AI Sales Assistant powered by Gemini 1.5 Flash
-- Multimodal Support (Text, Images, Voice)
-- Secure In-Memory Dashboard
-- Optimized for Render Free Tier (512MB RAM)
+### Step 1: Create .env file
+Create a `.env` file in the root folder:
 
-## Deploy to Render
+```env
+# WhatsApp Admin Number (your number with country code, no +)
+ADMIN_NUMBER=923001234567
 
-### Step 1: Create Render Account
-1. Go to [render.com](https://render.com) and sign up
-2. Create a new **Web Service**
-3. Connect your GitHub repo or use "Deploy from Git URL"
+# Groq AI API Key (optional - get from https://console.groq.com)
+# Leave empty if you don't have one
+GROQ_API_KEY=
 
-### Step 2: Set Environment Variables
-Add these in Render Dashboard > Service > Environment:
+# Firebase Service Account (optional - for cloud database)
+# Leave empty to use local JSON database
+FIREBASE_SERVICE_ACCOUNT=
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `GOOGLE_API_KEY` | Google Gemini API Key | `AIza...` |
-| `ADMIN_NUMBER` | Your WhatsApp number with country code | `923123456789` |
-| `RENDER_URL` | Your Render service URL | `https://simfly-os.onrender.com` |
-
-### Step 3: Deploy
-Render will automatically build and deploy. Check logs for QR code.
-
-### Step 4: Scan QR Code
-1. Open Render Logs
-2. Scan the QR code with your WhatsApp (Linked Devices)
-3. Bot is now live!
-
-## Local Development
-
-```bash
-# Clone and setup
-git clone <repo>
-cd simfly-os
-cp .env.example .env
-# Edit .env with your values
-
-# Install dependencies
-npm install
-
-# Run locally
-npm start
+# Server Port
+PORT=3000
 ```
 
-## Dashboard Access
+### Step 2: Deploy to Railway
 
-After the bot is ready, you'll receive:
-- WhatsApp notification with token
-- Dashboard URL: `https://your-url.onrender.com/dashboard/[TOKEN]`
+```bash
+railway login
+railway link
+railway up
+```
 
-## Business Logic
+### Step 3: Add .env to Railway Dashboard
+Go to Railway Dashboard → Your Project → Variables → Raw Editor
 
-### Pricing Tiers
-- **STARTER**: 500MB @ Rs. 130 (2 Years)
-- **POPULAR**: 1GB @ Rs. 400 (2 Years)
-- **MEGA**: 5GB @ Rs. 1500 (4 Devices)
+Paste your .env content there and deploy!
 
-### Payment Methods
-- **Easypaisa**: 03466544374 (Shafqat)
-- **JazzCash**: 03456754090 (Shafqat)
-- **SadaPay**: 03116400376 (Abdullah Saahi)
+## ✨ Features
 
-## Important Notes
+✅ **Simple Setup** - Works with just .env file, no complex configuration
+✅ **Smart AI** - Uses Groq AI if key provided, otherwise smart template responses
+✅ **Auto Database** - Firebase if configured, otherwise local JSON (auto-saves)
+✅ **Multiple Responses** - Different reply for every message
+✅ **Real-time Dashboard** - See QR code, logs, and stats
 
-1. **Session**: Render free tier has no persistent disk. Session resets on restart (QR required each restart).
-2. **Memory**: Strict 200MB heap limit enforced.
-3. **Groups**: Group messages are ignored to save RAM.
+## 🔧 How it Works
 
-## License
+### Without Groq API Key:
+- Bot uses smart template responses
+- Keyword-based intelligent replies
+- Works perfectly for sales
 
-MIT - SimFly Pakistan
+### Without Firebase:
+- Data saves to `data/database.json`
+- Persists between restarts
+- Auto-backup every 30 seconds
+
+## 📊 Dashboard
+
+Visit your Railway URL to see:
+- QR Code for WhatsApp connection
+- Real-time logs
+- Message/Order/User stats
+- AI and Database status
+
+## 🔌 API Endpoints
+
+- `GET /health` - Health check
+- `GET /api/status` - Full status with QR, logs, stats
+- `POST /api/send` - Send WhatsApp message via API
+
+## 🧠 Need AI?
+
+Get free Groq API key: https://console.groq.com
+
+Add to .env:
+```env
+GROQ_API_KEY=gsk_your_key_here
+```
+
+## 🔥 Need Firebase?
+
+1. Go to https://console.firebase.google.com
+2. Create project → Settings → Service Accounts
+3. Generate new private key
+4. Convert to base64:
+```bash
+base64 serviceAccount.json
+```
+5. Add to .env:
+```env
+FIREBASE_SERVICE_ACCOUNT=eyJ0eXBl...
+```
+
+## 📝 Example .env with all features
+
+```env
+ADMIN_NUMBER=923001234567
+GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
+FIREBASE_SERVICE_ACCOUNT=eyJ0eXBlIjoic2VydmljZV9hY2NvdW50...
+PORT=3000
+```
+
+---
+
+**Built for Railway.com | Works without external setup | v6.0 Simple .env Edition**
