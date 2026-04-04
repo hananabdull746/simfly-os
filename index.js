@@ -1,6 +1,7 @@
 /**
- * SIMFLY OS v7.0 - CONFIG.JS EDITION
- * No .env file needed, no Firebase, everything in config.js
+ * SIMFLY OS v8.0 - FIREBASE + GROQ AI EDITION
+ * Master Bot with Realtime Database
+ * ═══════════════════════════════════════════════════════
  */
 
 const express = require('express');
@@ -9,73 +10,192 @@ const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
 const chromium = require('@sparticuz/chromium');
+const axios = require('axios');
 
 // Import all configuration from config.js
-const { CONFIG, BUSINESS, SYSTEM_PROMPT, KEYWORD_RESPONSES, PUPPETEER_CONFIG, DB_CONFIG, BOT_CONFIG } = require('./config');
+const {
+    GROQ_API_KEY,
+    GROQ_MODEL,
+    ADMIN_NUMBER,
+    FIREBASE,
+    APP_URL,
+    BUSINESS,
+    BOT_CONFIG,
+    SYSTEM_PROMPT,
+    KEYWORD_RESPONSES,
+    DB_CONFIG,
+    PUPPETEER_CONFIG,
+    isGroqEnabled,
+    isFirebaseEnabled
+} = require('./config');
 
 // ============================================
-// LOCAL DATABASE (JSON File Only - No Firebase)
+// FIREBASE SETUP
 // ============================================
-const DATA_DIR = path.join(__dirname, DB_CONFIG.dataDir);
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+let admin = null;
+let DB = null;
 
-const DB = {
+if (isFirebaseEnabled()) {
+    try {
+        admin = require('firebase-admin');
+
+        admin.initializeApp({
+            credential: admin.credential.cert({
+                projectId: FIREBASE.projectId,
+                clientEmail: FIREBASE.clientEmail,
+                privateKey: FIREBASE.privateKey
+            }),
+            databaseURL: FIREBASE.databaseURL
+        });
+
+        DB = admin.database();
+        console.log('✓ Firebase Realtime Database connected');
+    } catch (e) {
+        console.error('✗ Firebase setup failed:', e.message);
+        DB = null;
+    }
+}
+
+// Local fallback if Firebase fails
+const localDB = {
     conversations: {},
     stats: { totalMessages: 0, totalOrders: 0 },
     users: {},
     orders: []
 };
 
-// Load from file
+const DATA_DIR = path.join(__dirname, DB_CONFIG.dataDir);
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
 const DB_FILE = path.join(DATA_DIR, DB_CONFIG.dbFile);
 if (fs.existsSync(DB_FILE)) {
     try {
         const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-        Object.assign(DB, data);
-        console.log('✓ Database loaded from file');
+        Object.assign(localDB, data);
     } catch (e) {
-        console.log('⚠ Database load failed, starting fresh');
+        console.log('⚠ Local DB load failed');
     }
 }
 
-// Save every 30 seconds
+// Auto-save local fallback
 setInterval(() => {
-    try {
-        fs.writeFileSync(DB_FILE, JSON.stringify(DB, null, 2));
-    } catch (e) {
-        console.error('Failed to save database:', e.message);
+    if (!DB) {
+        try {
+            fs.writeFileSync(DB_FILE, JSON.stringify(localDB, null, 2));
+        } catch (e) {}
     }
-}, DB_CONFIG.saveInterval);
+}, DB_CONFIG.autoSaveInterval);
 
 // ============================================
-// DATABASE FUNCTIONS
+// DATABASE FUNCTIONS (Firebase + Local Fallback)
 // ============================================
 async function saveMessage(chatId, message) {
-    if (!DB.conversations[chatId]) DB.conversations[chatId] = [];
-    DB.conversations[chatId].push(message);
-    if (DB.conversations[chatId].length > DB_CONFIG.maxMessagesPerChat) {
-        DB.conversations[chatId] = DB.conversations[chatId].slice(-DB_CONFIG.maxMessagesPerChat);
+    const chatKey = chatId.replace(/[^a-zA-Z0-9]/g, '_');
+
+    if (DB) {
+        // Firebase
+        const ref = DB.ref(`conversations/${chatKey}`);
+        const snapshot = await ref.once('value');
+        const messages = snapshot.val() || [];
+        messages.push(message);
+        if (messages.length > DB_CONFIG.maxMessagesPerChat) {
+            messages.splice(0, messages.length - DB_CONFIG.maxMessagesPerChat);
+        }
+        await ref.set(messages);
+    } else {
+        // Local fallback
+        if (!localDB.conversations[chatKey]) localDB.conversations[chatKey] = [];
+        localDB.conversations[chatKey].push(message);
+        if (localDB.conversations[chatKey].length > DB_CONFIG.maxMessagesPerChat) {
+            localDB.conversations[chatKey] = localDB.conversations[chatKey].slice(-DB_CONFIG.maxMessagesPerChat);
+        }
     }
 }
 
 async function getHistory(chatId) {
-    return DB.conversations[chatId] || [];
+    const chatKey = chatId.replace(/[^a-zA-Z0-9]/g, '_');
+
+    if (DB) {
+        const snapshot = await DB.ref(`conversations/${chatKey}`).once('value');
+        return snapshot.val() || [];
+    }
+    return localDB.conversations[chatKey] || [];
 }
 
-function addOrder(orderData) {
+async function addOrder(orderData) {
     const order = {
         id: Date.now().toString(36),
         ...orderData,
         createdAt: Date.now(),
         status: 'pending'
     };
-    DB.orders.push(order);
-    DB.stats.totalOrders++;
+
+    if (DB) {
+        await DB.ref(`orders/${order.id}`).set(order);
+        const statsRef = DB.ref('stats/totalOrders');
+        const snapshot = await statsRef.once('value');
+        await statsRef.set((snapshot.val() || 0) + 1);
+    } else {
+        localDB.orders.push(order);
+        localDB.stats.totalOrders++;
+    }
+
     return order;
 }
 
-function getOrders(chatId) {
-    return DB.orders.filter(o => o.chatId === chatId);
+async function getOrders(chatId) {
+    if (DB) {
+        const snapshot = await DB.ref('orders').once('value');
+        const orders = snapshot.val() || {};
+        return Object.values(orders).filter(o => o.chatId === chatId);
+    }
+    return localDB.orders.filter(o => o.chatId === chatId);
+}
+
+async function incrementStats(field) {
+    if (DB) {
+        const ref = DB.ref(`stats/${field}`);
+        const snapshot = await ref.once('value');
+        await ref.set((snapshot.val() || 0) + 1);
+    } else {
+        localDB.stats[field]++;
+    }
+}
+
+async function getStats() {
+    if (DB) {
+        const snapshot = await DB.ref('stats').once('value');
+        return snapshot.val() || { totalMessages: 0, totalOrders: 0 };
+    }
+    return localDB.stats;
+}
+
+async function trackUser(chatId) {
+    const userKey = chatId.replace(/[^a-zA-Z0-9]/g, '_');
+
+    if (DB) {
+        const ref = DB.ref(`users/${userKey}`);
+        const snapshot = await ref.once('value');
+        const user = snapshot.val() || { firstSeen: Date.now(), messages: 0 };
+        user.messages++;
+        user.lastSeen = Date.now();
+        await ref.set(user);
+    } else {
+        if (!localDB.users[userKey]) {
+            localDB.users[userKey] = { firstSeen: Date.now(), messages: 0 };
+        }
+        localDB.users[userKey].messages++;
+        localDB.users[userKey].lastSeen = Date.now();
+    }
+}
+
+async function getUserCount() {
+    if (DB) {
+        const snapshot = await DB.ref('users').once('value');
+        const users = snapshot.val() || {};
+        return Object.keys(users).length;
+    }
+    return Object.keys(localDB.users).length;
 }
 
 // ============================================
@@ -87,7 +207,8 @@ const State = {
     qrData: null,
     logs: [],
     startTime: Date.now(),
-    processedMessages: new Set() // Deduplication
+    processedMessages: new Set(), // Deduplication
+    stats: { totalMessages: 0, totalOrders: 0 }
 };
 
 function log(msg, type = 'info') {
@@ -127,9 +248,43 @@ function findFAQResponse(userMessage) {
 }
 
 // ============================================
-// AI RESPONSE GENERATION (Template-based only)
+// GROQ AI RESPONSE GENERATION
 // ============================================
-async function getAIResponse(userMessage, chatId) {
+async function getGroqResponse(userMessage, chatId, history) {
+    try {
+        const messages = [
+            { role: 'system', content: SYSTEM_PROMPT },
+            ...history.slice(-5).map(h => ({
+                role: h.fromMe ? 'assistant' : 'user',
+                content: h.body
+            })),
+            { role: 'user', content: userMessage }
+        ];
+
+        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+            model: GROQ_MODEL,
+            messages: messages,
+            max_tokens: 500,
+            temperature: 0.7
+        }, {
+            headers: {
+                'Authorization': `Bearer ${GROQ_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 10000
+        });
+
+        return response.data.choices[0].message.content;
+    } catch (e) {
+        log('Groq API error: ' + e.message, 'error');
+        return null;
+    }
+}
+
+// ============================================
+// TEMPLATE-BASED RESPONSE GENERATION
+// ============================================
+async function getTemplateResponse(userMessage, chatId) {
     const msg = userMessage.toLowerCase();
 
     // 1. Check for greetings
@@ -137,17 +292,11 @@ async function getAIResponse(userMessage, chatId) {
         return findKeywordResponse(userMessage) || `Assalam-o-Alaikum bhai! 👋 SimFly Pakistan mein khush amdeed! Main aapki kya madad kar sakta hoon? 😊`;
     }
 
-    // 2. Check FAQ first
-    const faqResponse = findFAQResponse(userMessage);
-    if (faqResponse) return faqResponse;
-
-    // 3. Check keyword responses
+    // 2. Check keyword responses
     const keywordResponse = findKeywordResponse(userMessage);
     if (keywordResponse) return keywordResponse;
 
-    // 4. Context-based responses
-    const history = await getHistory(chatId);
-
+    // 3. Context-based responses
     // Check if user mentioned a plan
     if (msg.includes('500mb')) {
         return `500MB plan Rs. 130 mein hai bhai! ⚡ 2 saal ki validity hai.\n\nPayment karne ke liye ready hain? 💳`;
@@ -164,13 +313,35 @@ async function getAIResponse(userMessage, chatId) {
         return `Payment Methods:\n\n💳 EasyPaisa: ${BUSINESS.payments.easypaisa.number}\n💳 JazzCash: ${BUSINESS.payments.jazzcash.number}\n💳 SadaPay: ${BUSINESS.payments.sadapay.number}\n\nPayment karke screenshot bhej dein bhai! 📱`;
     }
 
-    // Check if asking for order status
-    if (msg.includes('status') || msg.includes('order') || msg.includes('kahan')) {
-        return `Bhai order ke liye:\n\n1️⃣ Plan select karein\n2️⃣ Payment karein\n3️⃣ Screenshot bhej dein\n\nMain foran process kar deta hoon! ⚡`;
-    }
-
     // Default fallback response
     return `Bhai samajh nahi aaya. 😅 Main SimFly Pakistan ke eSIM plans ke bare mein info de sakta hoon.\n\nKya aap:\n📱 Plans dekhna chahte hain?\n💳 Payment methods janna chahte hain?\n🛒 Order karna chahte hain?\n\nYa "help" likh dein! 👍`;
+}
+
+// ============================================
+// MAIN AI RESPONSE FUNCTION (Hybrid)
+// ============================================
+async function getAIResponse(userMessage, chatId) {
+    const msg = userMessage.toLowerCase();
+
+    // Check for exact keywords first (faster)
+    const keywordResponse = findKeywordResponse(userMessage);
+    if (keywordResponse) return keywordResponse;
+
+    // Get history for context
+    const history = await getHistory(chatId);
+
+    // Try Groq if enabled
+    if (BOT_CONFIG.useAI && isGroqEnabled()) {
+        const groqResponse = await getGroqResponse(userMessage, chatId, history);
+        if (groqResponse) return groqResponse;
+    }
+
+    // Fallback to templates
+    if (BOT_CONFIG.useTemplates) {
+        return await getTemplateResponse(userMessage, chatId);
+    }
+
+    return `Sorry bhai, main abhi samajh nahi paya. 🤔 Kya aap repeat karein?`;
 }
 
 // ============================================
@@ -224,11 +395,12 @@ async function startWhatsApp() {
             State.qrData = null;
 
             // Notify admin
-            if (CONFIG.ADMIN_NUMBER) {
+            if (ADMIN_NUMBER) {
                 setTimeout(async () => {
                     try {
-                        const adminChat = `${CONFIG.ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
-                        await client.sendMessage(adminChat, `🤖 ${CONFIG.BOT_NAME} ONLINE! ✅\n\n📊 Stats: ${DB.stats.totalMessages} messages, ${DB.stats.totalOrders} orders\n⏱️ Uptime: ${Math.floor((Date.now() - State.startTime) / 1000)}s\n\nReady for customers! 🚀`);
+                        const stats = await getStats();
+                        const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                        await client.sendMessage(adminChat, `🤖 SimFly Bot ONLINE! ✅\n\n📊 Stats: ${stats.totalMessages || 0} messages, ${stats.totalOrders || 0} orders\n⏱️ Uptime: ${Math.floor((Date.now() - State.startTime) / 1000)}s\n\nReady for customers! 🚀`);
                         log('Admin notified');
                     } catch (e) {
                         log('Failed to notify admin: ' + e.message, 'error');
@@ -271,14 +443,10 @@ async function startWhatsApp() {
 
             // Save to database
             await saveMessage(chatId, { body, fromMe: false, time: Date.now() });
-            DB.stats.totalMessages++;
+            await incrementStats('totalMessages');
 
             // Track user
-            if (!DB.users[chatId]) {
-                DB.users[chatId] = { firstSeen: Date.now(), messages: 0 };
-            }
-            DB.users[chatId].messages++;
-            DB.users[chatId].lastSeen = Date.now();
+            await trackUser(chatId);
 
             // Skip if not ready
             if (!State.isReady) return;
@@ -323,9 +491,9 @@ async function startWhatsApp() {
                         });
 
                         // Notify admin
-                        if (CONFIG.ADMIN_NUMBER) {
+                        if (ADMIN_NUMBER) {
                             try {
-                                const adminChat = `${CONFIG.ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                                const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
                                 await client.sendMessage(adminChat, `💰 Payment Screenshot Received!\n\nFrom: ${chatId}\nTime: ${new Date().toLocaleString()}\n\nCheck and process ASAP! 🔥`);
                             } catch (e) {}
                         }
@@ -373,25 +541,42 @@ app.get('/health', (req, res) => {
 });
 
 // Status API
-app.get('/api/status', (req, res) => {
-    res.json({
-        status: State.status,
-        ready: State.isReady,
-        qr: State.qrData,
-        stats: DB.stats,
-        users: Object.keys(DB.users).length,
-        orders: DB.orders.length,
-        logs: State.logs.slice(0, 15),
-        uptime: Date.now() - State.startTime
-    });
+app.get('/api/status', async (req, res) => {
+    try {
+        const stats = await getStats();
+        const userCount = await getUserCount();
+        const orders = await getOrders('all');
+
+        res.json({
+            status: State.status,
+            ready: State.isReady,
+            qr: State.qrData,
+            stats: stats,
+            users: userCount,
+            orders: orders.length,
+            logs: State.logs.slice(0, 15),
+            uptime: Date.now() - State.startTime,
+            firebase: isFirebaseEnabled(),
+            groq: isGroqEnabled()
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // Get orders API
-app.get('/api/orders', (req, res) => {
-    res.json({
-        orders: DB.orders.slice(-20),
-        total: DB.orders.length
-    });
+app.get('/api/orders', async (req, res) => {
+    try {
+        if (DB) {
+            const snapshot = await DB.ref('orders').once('value');
+            const orders = Object.values(snapshot.val() || {});
+            res.json({ orders: orders.slice(-20), total: orders.length });
+        } else {
+            res.json({ orders: localDB.orders.slice(-20), total: localDB.orders.length });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // Send message via API
@@ -475,8 +660,9 @@ app.get('/', (req, res) => {
             <div class="title">${BUSINESS.name}</div>
             <div class="subtitle">${BUSINESS.tagline}</div>
             <div style="margin-top: 10px;">
-                <span class="badge badge-blue">v7.0 Config Edition</span>
-                <span class="badge badge-green">Local DB</span>
+                <span class="badge badge-blue">v8.0 Master Bot</span>
+                <span class="badge ${isFirebaseEnabled() ? 'badge-green' : 'badge-yellow'}">${isFirebaseEnabled() ? 'Firebase' : 'Local DB'}</span>
+                ${isGroqEnabled() ? '<span class="badge badge-green">Groq AI</span>' : ''}
             </div>
         </div>
 
@@ -562,7 +748,7 @@ app.get('/', (req, res) => {
             <div id="sendResult" style="text-align: center; margin-top: 10px; font-size: 0.85rem;"></div>
         </div>
 
-        <div class="footer">v7.0 Config.js Edition | No .env needed | Local JSON Database</div>
+        <div class="footer">v8.0 Master Bot | Firebase + Groq AI | SimFly Pakistan</div>
     </div>
 
     <script>
@@ -685,12 +871,13 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-const server = app.listen(CONFIG.PORT, () => {
+const server = app.listen(BOT_CONFIG.port, () => {
     log('='.repeat(50));
-    log('SimFly OS v7.0 - Config.js Edition');
-    log('Port: ' + CONFIG.PORT);
-    log('Admin: ' + (CONFIG.ADMIN_NUMBER || 'Not set'));
-    log('Database: Local JSON (' + DB_CONFIG.dbFile + ')');
+    log('SimFly OS v8.0 - Firebase + Groq AI Edition');
+    log('Port: ' + BOT_CONFIG.port);
+    log('Admin: ' + (ADMIN_NUMBER || 'Not set'));
+    log('Database: ' + (isFirebaseEnabled() ? 'Firebase Realtime' : 'Local JSON'));
+    log('Groq AI: ' + (isGroqEnabled() ? 'Enabled' : 'Disabled'));
     log('='.repeat(50));
     setTimeout(startWhatsApp, 2000);
 });
