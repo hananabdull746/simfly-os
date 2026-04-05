@@ -2551,85 +2551,19 @@ async function startWhatsApp() {
                 return;
             }
 
-            // 👤 NEW USER FLOW: Check if user needs device verification first
+            // 👤 NEW USER: Set session but let AI handle conversation naturally
             const isNew = await isNewUser(chatId);
             const userSession = getUserSession(chatId);
 
+            // Auto-set session info based on message content (for AI context)
             if (isNew && userSession.state === 'new') {
-                // First message from new user - ask for device name
-                setUserSession(chatId, { state: 'awaiting_device', step: 1 });
-
-                const welcomeMsg = `Assalam-o-Alaikum bhai! 👋 SimFly Pakistan mein khush amdeed! 😊\n\nMain aapki device check kar leta hoon ke eSIM work karegi ya nahi.\n\n📱 *Apna device ka naam batain:*\n\n(Jaise: iPhone 14 Pro Max, Samsung S23, etc.)\n\nAapka kaunsa device hai? 🤔`;
-
-                await msg.reply(welcomeMsg);
-                await saveMessage(chatId, { body: welcomeMsg, fromMe: true, time: Date.now() });
-                return;
+                setUserSession(chatId, { state: 'active', step: 1, firstMessage: body });
             }
 
-            if (userSession.state === 'awaiting_device') {
-                // User replied with device name - check compatibility
-                const deviceCheck = checkDeviceCompatibility(body);
-                let deviceResponse = '';
-
-                if (deviceCheck.compatible === true) {
-                    deviceResponse = `✅ *Good News!*\n\n${deviceCheck.matchedDevice} mein eSIM *work karegi!* 🔥\n\n${deviceCheck.note}\n\n⚠️ *Important:* Device *Non-PTA* hona chahiye.\n\nKya aapka device Non-PTA hai?\n\n*Haan* likhain toh plans dikha deta hoon! 📱`;
-                    setUserSession(chatId, { state: 'awaiting_pta_confirm', step: 2, device: deviceCheck.matchedDevice });
-                } else if (deviceCheck.compatible === false) {
-                    deviceResponse = `❌ *Sorry Bhai!*\n\n${deviceCheck.matchedDevice} mein eSIM *work nahi karegi.*\n\n${deviceCheck.note}\n\n💡 *Suggestion:* iPhone XS/XR se upar ka model lena hoga, ya Samsung S20 series.\n\nKoi aur device hai aapke paas? 🤔`;
-                    setUserSession(chatId, { state: 'device_not_compatible', step: 2, device: deviceCheck.matchedDevice });
-                } else {
-                    // Uncertain - ask for clarification
-                    deviceResponse = `🤔 *Device Check*\n\n"${body}" ka compatibility confirm karna hai.\n\n${deviceCheck.note}\n\n💡 *Supported Devices:*\n📱 iPhone XS, XR, 11, 12, 13, 14, 15, 16 series\n📱 Samsung S20, S21, S22, S23, S24 series\n📱 Google Pixel 4+\n\nAapka device in mein se kaunsa hai? 😊`;
-                    setUserSession(chatId, { state: 'awaiting_device', step: 1 });
-                }
-
-                await msg.reply(deviceResponse);
-                await saveMessage(chatId, { body: deviceResponse, fromMe: true, time: Date.now() });
-                return;
-            }
-
-            if (userSession.state === 'awaiting_pta_confirm') {
-                const lowerBody = body.toLowerCase();
-                if (lowerBody.includes('han') || lowerBody.includes('yes') || lowerBody.includes('y') || lowerBody.includes('haan') || lowerBody.includes('جی')) {
-                    // User confirmed Non-PTA - show plans
-                    const plansMsg = `✅ *Perfect!*\n\nAb main aapko plans dikha deta hoon:\n\n⚡ *500MB* - Rs. 130 (2 saal)\n🔥 *1GB* - Rs. 400 (Most Popular)\n💎 *5GB* - Rs. 1500 (4 devices)\n\nKaunsa plan pasand hai bhai? 🤔\n\nYa koi aur sawal hai toh pooch sakte hain! 😊`;
-
-                    setUserSession(chatId, { state: 'active', step: 3, device: userSession.device });
-                    await msg.reply(plansMsg);
-                    await saveMessage(chatId, { body: plansMsg, fromMe: true, time: Date.now() });
-                    return;
-                } else if (lowerBody.includes('pta') || lowerBody.includes('nahi') || lowerBody.includes('no') || lowerBody.includes('registered')) {
-                    const ptaMsg = `⚠️ *Important Notice*\n\nBhai, eSIM *sirf Non-PTA devices* pe work karti hai.\n\n❌ *PTA registered devices* pe eSIM work *nahi* karegi.\n\nAgar aapka device PTA registered hai toh unfortunately eSIM use nahi kar sakte.\n\nKoi aur device hai aapke paas jo Non-PTA ho? 🤔`;
-
-                    await msg.reply(ptaMsg);
-                    await saveMessage(chatId, { body: ptaMsg, fromMe: true, time: Date.now() });
-                    return;
-                } else {
-                    // Unclear response - ask again
-                    const clarifyMsg = `🤔 *Samajh nahi aaya bhai...*\n\nKya aapka device *Non-PTA* hai?\n\n*Haan* likhain agar Non-PTA hai\n*Nahi* likhain agar PTA registered hai\n\nIske baad main plans dikha deta hoon! 📱`;
-
-                    await msg.reply(clarifyMsg);
-                    await saveMessage(chatId, { body: clarifyMsg, fromMe: true, time: Date.now() });
-                    return;
-                }
-            }
-
-            if (userSession.state === 'device_not_compatible') {
-                // User has incompatible device, but maybe they have another device
-                const lowerBody = body.toLowerCase();
-                if (lowerBody.includes('han') || lowerBody.includes('yes') || lowerBody.includes('hai') || lowerBody.includes('iphone') || lowerBody.includes('samsung') || lowerBody.includes('pixel')) {
-                    // User mentioned another device - check it
-                    const deviceCheck = checkDeviceCompatibility(body);
-                    if (deviceCheck.compatible === true) {
-                        const otherDeviceMsg = `✅ *Great!*\n\n${deviceCheck.matchedDevice} mein eSIM work karegi! 🔥\n\nKya ye device *Non-PTA* hai?\n\n*Haan* likhain toh plans dikha deta hoon! 📱`;
-                        setUserSession(chatId, { state: 'awaiting_pta_confirm', step: 2, device: deviceCheck.matchedDevice });
-                        await msg.reply(otherDeviceMsg);
-                        await saveMessage(chatId, { body: otherDeviceMsg, fromMe: true, time: Date.now() });
-                        return;
-                    }
-                }
-                // Otherwise, continue to normal flow
-                setUserSession(chatId, { state: 'active', step: 3 });
+            // Extract device info if mentioned (for AI context, not forced flow)
+            const deviceCheck = checkDeviceCompatibility(body);
+            if (deviceCheck.compatible !== null && userSession.device !== deviceCheck.matchedDevice) {
+                setUserSession(chatId, { ...userSession, device: deviceCheck.matchedDevice, deviceCompatible: deviceCheck.compatible });
             }
 
             // Regular message handling
