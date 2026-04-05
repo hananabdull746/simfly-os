@@ -48,6 +48,33 @@ const GEMINI_API_KEYS = [
 const ADMIN_NUMBER = 'YOUR_WHATSAPP_NUMBER_HERE';
 
 // ═══════════════════════════════════════════════════════
+// TEST BOARD / PRIVATE MODE — Only whitelisted numbers can use bot
+// ═══════════════════════════════════════════════════════
+const TEST_BOARD = {
+  // Set to true to enable private mode (only whitelisted users can use bot)
+  enabled: false,
+
+  // Whitelist — Add numbers that can use bot during testing
+  // Format: ['923001234567', '923001234568']
+  whitelist: [],
+
+  // Message to show non-whitelisted users
+  message: '🚫 Bot is currently in testing mode. Please wait for public launch! 🚀'
+};
+
+// ═══════════════════════════════════════════════════════
+// BOT MODE — Test vs Public
+// ═══════════════════════════════════════════════════════
+const BOT_MODE = {
+  // 'test' = Only admin/whitelist can use
+  // 'public' = Everyone can use
+  mode: 'public',
+
+  // When in test mode, store non-whitelist messages for later review
+  saveExternalMessages: true
+};
+
+// ═══════════════════════════════════════════════════════
 // FIREBASE SETTINGS
 // firebase.google.com > Project Settings > Service Accounts
 // ═══════════════════════════════════════════════════════
@@ -574,6 +601,8 @@ module.exports = {
   BUSINESS,
   BOT_CONFIG,
   AUTOMATION,
+  TEST_BOARD,
+  BOT_MODE,
 
   // Gemini AI Config
   GEMINI_APIS,

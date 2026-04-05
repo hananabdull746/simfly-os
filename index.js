@@ -26,6 +26,8 @@ const {
     DB_CONFIG,
     PUPPETEER_CONFIG,
     ESIIM_GUIDES,
+    TEST_BOARD,
+    BOT_MODE,
     isGroqEnabled,
     isFirebaseEnabled
 } = require('./config');
@@ -34,6 +36,22 @@ const {
 
 // Import Automation Config
 const { AUTOMATION } = require('./config');
+
+// ═══════════════════════════════════════════════════════
+// WHITELIST / PRIVATE MODE HELPERS
+// ═══════════════════════════════════════════════════════
+function isWhitelisted(chatId) {
+    if (!TEST_BOARD.enabled) return true;
+    const number = chatId.replace(/\D/g, '');
+    return TEST_BOARD.whitelist.some(w => number.includes(w) || w.includes(number));
+}
+
+function isAdmin(chatId) {
+    return chatId.includes(ADMIN_NUMBER.replace(/\D/g, ''));
+}
+
+// Shutdown control
+let shutdownRequested = false;
 
 // ═══════════════════════════════════════════════════════
 // CUSTOM GUIDES STORAGE — Admin editable guides (stored in memory + file)
@@ -676,60 +694,111 @@ function cancelFollowup(chatId) {
 
 async function verifyPaymentScreenshot(msg, chatId, body) {
     const lowerBody = body.toLowerCase();
-    const paymentKeywords = ['payment', 'screenshot', 'pay', 'done', 'send', 'sent', 'bheja', 'transfer', 'rs', 'rs.', 'amount'];
+    const paymentKeywords = ['payment', 'screenshot', 'pay', 'done', 'send', 'sent', 'bheja', 'transfer', 'rs', 'rs.', 'amount', 'paid'];
+    const issueKeywords = ['problem', 'issue', 'masla', 'error', 'nahi', 'fail', 'not working', 'help', 'support'];
     const isPaymentRelated = paymentKeywords.some(k => lowerBody.includes(k));
+    const isIssueRelated = issueKeywords.some(k => lowerBody.includes(k));
 
-    if (!isPaymentRelated && !msg.hasMedia) return null;
+    if (!isPaymentRelated && !isIssueRelated && !msg.hasMedia) return null;
 
     const verificationResult = {
         verified: false,
+        type: 'unknown', // 'payment', 'issue', 'unknown'
         planType: null,
         amount: null,
         paymentMethod: null,
-        confidence: 0
+        confidence: 0,
+        geminiAnalysis: null
     };
 
-    // Detect plan type from message
-    if (lowerBody.includes('500mb') || lowerBody.includes('500 mb') || lowerBody.includes('130')) {
-        verificationResult.planType = '500MB';
-        verificationResult.amount = 130;
-        verificationResult.confidence += 30;
-    } else if (lowerBody.includes('1gb') || lowerBody.includes('1 gb') || lowerBody.includes('400')) {
-        verificationResult.planType = '1GB';
-        verificationResult.amount = 400;
-        verificationResult.confidence += 30;
-    } else if (lowerBody.includes('5gb') || lowerBody.includes('5 gb') || lowerBody.includes('1500')) {
-        verificationResult.planType = '5GB';
-        verificationResult.amount = 1500;
-        verificationResult.confidence += 30;
-    }
-
-    // Detect payment method
-    if (lowerBody.includes('jazzcash') || lowerBody.includes('jazz')) {
-        verificationResult.paymentMethod = 'JazzCash';
-        verificationResult.confidence += 20;
-    } else if (lowerBody.includes('easypaisa') || lowerBody.includes('easy')) {
-        verificationResult.paymentMethod = 'EasyPaisa';
-        verificationResult.confidence += 20;
-    } else if (lowerBody.includes('sadapay') || lowerBody.includes('sada')) {
-        verificationResult.paymentMethod = 'SadaPay';
-        verificationResult.confidence += 20;
-    }
-
-    // If has media (screenshot), increase confidence
+    // If has media, use Gemini AI to analyze
     if (msg.hasMedia) {
-        verificationResult.confidence += 30;
-        verificationResult.verified = verificationResult.confidence >= 60;
+        try {
+            const media = await msg.downloadMedia();
+            if (media && media.data) {
+                log(`Analyzing screenshot from ${chatId} with Gemini AI...`, 'info');
+                const analysis = await analyzeImageWithGemini(media.data, media.mimetype, chatId, body);
+                verificationResult.geminiAnalysis = analysis;
+
+                if (analysis.type === 'payment') {
+                    verificationResult.type = 'payment';
+                    verificationResult.confidence = analysis.confidence;
+
+                    // Extract amount from Gemini analysis
+                    if (analysis.amount) {
+                        if (analysis.amount === 130) verificationResult.planType = '500MB';
+                        else if (analysis.amount === 400) verificationResult.planType = '1GB';
+                        else if (analysis.amount === 1500) verificationResult.planType = '5GB';
+                        verificationResult.amount = analysis.amount;
+                    }
+
+                    // Extract payment method
+                    if (analysis.method) {
+                        verificationResult.paymentMethod = analysis.method;
+                    }
+
+                    // Mark as verified if confidence is high
+                    if (analysis.confidence >= 60) {
+                        verificationResult.verified = true;
+                    }
+                } else if (analysis.type === 'issue') {
+                    verificationResult.type = 'issue';
+                    verificationResult.confidence = analysis.confidence;
+                    verificationResult.issueDescription = analysis.description;
+                }
+            }
+        } catch (e) {
+            log('Gemini analysis error: ' + e.message, 'error');
+        }
+    }
+
+    // Fallback: Detect plan type from message text
+    if (!verificationResult.planType) {
+        if (lowerBody.includes('500mb') || lowerBody.includes('500 mb') || lowerBody.includes('130')) {
+            verificationResult.planType = '500MB';
+            verificationResult.amount = 130;
+            verificationResult.confidence += 30;
+        } else if (lowerBody.includes('1gb') || lowerBody.includes('1 gb') || lowerBody.includes('400')) {
+            verificationResult.planType = '1GB';
+            verificationResult.amount = 400;
+            verificationResult.confidence += 30;
+        } else if (lowerBody.includes('5gb') || lowerBody.includes('5 gb') || lowerBody.includes('1500')) {
+            verificationResult.planType = '5GB';
+            verificationResult.amount = 1500;
+            verificationResult.confidence += 30;
+        }
+    }
+
+    // Fallback: Detect payment method from text
+    if (!verificationResult.paymentMethod) {
+        if (lowerBody.includes('jazzcash') || lowerBody.includes('jazz')) {
+            verificationResult.paymentMethod = 'JazzCash';
+            verificationResult.confidence += 20;
+        } else if (lowerBody.includes('easypaisa') || lowerBody.includes('easy')) {
+            verificationResult.paymentMethod = 'EasyPaisa';
+            verificationResult.confidence += 20;
+        } else if (lowerBody.includes('sadapay') || lowerBody.includes('sada')) {
+            verificationResult.paymentMethod = 'SadaPay';
+            verificationResult.confidence += 20;
+        }
+    }
+
+    // If still no type detected but has media, assume payment
+    if (verificationResult.type === 'unknown' && msg.hasMedia && isPaymentRelated) {
+        verificationResult.type = 'payment';
+        verificationResult.confidence = Math.max(verificationResult.confidence, 50);
     }
 
     // Save to pending payments
-    pendingPayments.set(chatId, {
-        ...verificationResult,
-        chatId,
-        messageId: msg.id?.id,
-        timestamp: Date.now(),
-        originalMessage: body
-    });
+    if (verificationResult.type === 'payment') {
+        pendingPayments.set(chatId, {
+            ...verificationResult,
+            chatId,
+            messageId: msg.id?.id,
+            timestamp: Date.now(),
+            originalMessage: body
+        });
+    }
 
     return verificationResult;
 }
@@ -1050,6 +1119,16 @@ const ADMIN_COMMANDS = {
     '!blacklist': { desc: 'Blacklist a number', usage: '!blacklist <number>', category: 'security' },
     '!security-logs': { desc: 'Security logs', usage: '!security-logs', category: 'security' },
     '!audit': { desc: 'Audit trail', usage: '!audit', category: 'security' },
+
+    // 🚪 TEST BOARD / PRIVATE MODE
+    '!test-mode': { desc: 'Toggle test mode (whitelist only)', usage: '!test-mode [on/off]', category: 'testboard' },
+    '!whitelist-add': { desc: 'Add number to whitelist', usage: '!whitelist-add <number>', category: 'testboard' },
+    '!whitelist-remove': { desc: 'Remove from whitelist', usage: '!whitelist-remove <number>', category: 'testboard' },
+    '!whitelist-list': { desc: 'Show whitelisted numbers', usage: '!whitelist-list', category: 'testboard' },
+    '!whitelist-clear': { desc: 'Clear whitelist', usage: '!whitelist-clear', category: 'testboard' },
+    '!shutdown': { desc: 'Gracefully shutdown bot', usage: '!shutdown [reason]', category: 'testboard' },
+    '!user-status': { desc: 'Analyze user status/intent', usage: '!user-status <number>', category: 'testboard' },
+    '!external-msgs': { desc: 'Show messages from non-whitelisted users', usage: '!external-msgs', category: 'testboard' },
 
     // ❓ HELP
     '!help': { desc: 'Show help', usage: '!help [category]', category: 'help' },
@@ -1438,7 +1517,7 @@ async function handleAdminCommand(msg, chatId, body) {
     }
 
     if (command === '!admin-help') {
-        return `📚 *ADMIN COMMAND CATEGORIES*\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !user-msg\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !maintenance\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n📈 Analytics: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n❓ Help: !help, !cmd\n\nUse !help <category> for details`;
+        return `📚 *ADMIN COMMAND CATEGORIES*\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !user-msg\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !maintenance\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n🔒 Test Board: !test-mode, !whitelist-add, !whitelist-list\n📈 Analytics: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n❓ Help: !help, !cmd\n\nUse !help <category> for details`;
     }
 
     if (command === '!about') {
@@ -1460,6 +1539,83 @@ async function handleAdminCommand(msg, chatId, body) {
         State.pauseReason = null;
         log(`Bot RESUMED by ${chatId}`, 'admin');
         return `▶️ *BOT RESUMED*\n\n✅ Auto-replies ON hain\n🤖 Bot ab automatically reply karega\n\n⏸️ Pause karne ke liye: !stop`;
+    }
+
+    // 🚪 SHUTDOWN COMMAND
+    if (command === '!shutdown') {
+        const reason = args || 'Shutdown by admin';
+        log(`SHUTDOWN requested by ${chatId}. Reason: ${reason}`, 'admin');
+        shutdownRequested = true;
+
+        // Notify admin
+        setTimeout(async () => {
+            try {
+                if (client) {
+                    await client.sendMessage(chatId, `🛑 *BOT SHUTTING DOWN*\n\nReason: ${reason}\nTime: ${new Date().toLocaleString()}\n\n_The bot will restart automatically if configured._`);
+                    await client.destroy();
+                }
+                process.exit(0);
+            } catch (e) {
+                log('Shutdown error: ' + e.message, 'error');
+                process.exit(1);
+            }
+        }, 2000);
+
+        return `🛑 *INITIATING SHUTDOWN*\n\nReason: ${reason}\n\n⏱️ Bot will shut down in 2 seconds...`;
+    }
+
+    // 🚪 TEST BOARD / PRIVATE MODE COMMANDS
+    if (command === '!test-mode') {
+        if (!args) {
+            return `🔒 *TEST BOARD MODE*\n\nStatus: ${TEST_BOARD.enabled ? '🔴 PRIVATE (Whitelist Only)' : '🟢 PUBLIC'}\nWhitelist Count: ${TEST_BOARD.whitelist.length}\n\nUsage:\n• !test-mode on - Enable whitelist only\n• !test-mode off - Disable whitelist (public)`;
+        }
+
+        const newState = args.toLowerCase() === 'on';
+        TEST_BOARD.enabled = newState;
+
+        return `🔒 *TEST MODE ${newState ? 'ENABLED' : 'DISABLED'}*\n\n${newState ? '🔴 Only whitelisted numbers can use bot' : '🟢 Bot is PUBLIC - everyone can use'}\n\nWhitelist: ${TEST_BOARD.whitelist.length} numbers\n\n${newState ? 'Use !whitelist-add <number> to add users' : ''}`;
+    }
+
+    if (command === '!whitelist-add') {
+        if (!args) return '❌ Usage: !whitelist-add <number>\n\nExample: !whitelist-add 923001234567';
+        const number = args.replace(/\D/g, '');
+        if (!TEST_BOARD.whitelist.includes(number)) {
+            TEST_BOARD.whitelist.push(number);
+        }
+        return `✅ *WHITELISTED*\n\nNumber: ${number}\nTotal whitelisted: ${TEST_BOARD.whitelist.length}\n\nThis user can now use the bot during test mode.`;
+    }
+
+    if (command === '!whitelist-remove') {
+        if (!args) return '❌ Usage: !whitelist-remove <number>';
+        const number = args.replace(/\D/g, '');
+        TEST_BOARD.whitelist = TEST_BOARD.whitelist.filter(n => n !== number);
+        return `✅ *REMOVED FROM WHITELIST*\n\nNumber: ${number}\nTotal whitelisted: ${TEST_BOARD.whitelist.length}`;
+    }
+
+    if (command === '!whitelist-list') {
+        const list = TEST_BOARD.whitelist.map((n, i) => `${i + 1}. ${n}`).join('\n') || 'No whitelisted numbers';
+        return `📋 *WHITELISTED NUMBERS* (${TEST_BOARD.whitelist.length})\n\n${list}\n\n${TEST_BOARD.enabled ? '🔴 Test mode ACTIVE - Only these numbers can use bot' : '🟢 Test mode OFF - Bot is public'}`;
+    }
+
+    if (command === '!whitelist-clear') {
+        const count = TEST_BOARD.whitelist.length;
+        TEST_BOARD.whitelist = [];
+        return `🗑️ *WHITELIST CLEARED*\n\nRemoved ${count} numbers.\n\nWhitelist is now empty.`;
+    }
+
+    if (command === '!user-status') {
+        if (!args) return '❌ Usage: !user-status <number>\n\nExample: !user-status 923001234567';
+        const number = args.replace(/\D/g, '');
+        const userChatId = `${number}@c.us`;
+        const status = await analyzeUserStatus(userChatId);
+        return `📊 *USER STATUS ANALYSIS*\n\n👤 Number: ${number}\n\n${status}`;
+    }
+
+    if (command === '!external-msgs') {
+        const msgs = await getExternalMessages();
+        if (!msgs || msgs.length === 0) return '📭 No messages from non-whitelisted users';
+        const list = msgs.slice(-10).map(m => `👤 ${m.chatId}\n💬 ${m.body.slice(0, 50)}...\n🕐 ${new Date(m.time).toLocaleString()}`).join('\n\n');
+        return `📨 *EXTERNAL MESSAGES* (${msgs.length} total)\n\nLast 10 messages:\n\n${list}`;
     }
 
     // 📚 GUIDE MANAGEMENT
@@ -1622,6 +1778,87 @@ async function generateReport(period) {
     return `📊 *${period.toUpperCase()} REPORT*\n\n📦 Orders: ${periodOrders.length}\n💰 Revenue: Rs. ${revenue}\n👥 Total Users: ${users}\n✅ Completed: ${periodOrders.filter(o => o.status === 'completed').length}\n⏳ Pending: ${periodOrders.filter(o => o.status === 'pending').length}`;
 }
 
+// ═══════════════════════════════════════════════════════
+// WHITELIST / TEST BOARD HELPERS
+// ═══════════════════════════════════════════════════════
+const externalMessages = [];
+
+async function saveExternalMessage(chatId, body) {
+    externalMessages.push({
+        chatId,
+        body,
+        time: Date.now()
+    });
+    // Keep only last 100 messages
+    if (externalMessages.length > 100) {
+        externalMessages.shift();
+    }
+}
+
+async function getExternalMessages() {
+    return externalMessages;
+}
+
+// ═══════════════════════════════════════════════════════
+// USER STATUS ANALYSIS — Analyze user intent and history
+// ═══════════════════════════════════════════════════════
+async function analyzeUserStatus(chatId) {
+    try {
+        const history = await getHistory(chatId);
+        const orders = (await getAllOrders()).filter(o => o.chatId === chatId);
+        const userSession = getUserSession(chatId);
+
+        // Analyze message content
+        const allMessages = history.map(m => m.body.toLowerCase()).join(' ');
+        const hasBought = orders.some(o => o.status === 'completed');
+        const pendingOrder = orders.find(o => o.status === 'pending');
+
+        // Intent detection
+        let intent = 'unknown';
+        if (hasBought) intent = 'purchased';
+        else if (pendingOrder) intent = 'payment_pending';
+        else if (allMessages.includes('price') || allMessages.includes('plan') || allMessages.includes('kitne')) intent = 'interested';
+        else if (allMessages.includes('device') || allMessages.includes('iphone') || allMessages.includes('samsung')) intent = 'checking_device';
+
+        // Plan preference
+        let preferredPlan = 'none';
+        if (allMessages.includes('5gb')) preferredPlan = '5GB';
+        else if (allMessages.includes('1gb')) preferredPlan = '1GB';
+        else if (allMessages.includes('500mb')) preferredPlan = '500MB';
+
+        // Device info
+        const device = userSession.device || 'Not specified';
+        const deviceCompatible = userSession.deviceCompatible !== undefined
+            ? (userSession.deviceCompatible ? '✅ Compatible' : '❌ Not Compatible')
+            : 'Unknown';
+
+        // Format analysis
+        const lastActive = history.length > 0
+            ? new Date(history[history.length - 1].time).toLocaleString()
+            : 'Never';
+
+        return `📋 *User Analysis*
+
+🎯 *Intent:* ${intent}
+💰 *Status:* ${hasBought ? '✅ Already Purchased' : pendingOrder ? '⏳ Payment Pending' : '🤔 Browsing'}
+📦 *Preferred Plan:* ${preferredPlan}
+📱 *Device:* ${device} (${deviceCompatible})
+💬 *Messages:* ${history.length}
+📅 *Last Active:* ${lastActive}
+
+📊 *Order History:*
+${orders.length > 0 ? orders.map(o => `• ${o.planType || 'Unknown'} - ${o.status} - Rs.${o.amount || 'N/A'}`).join('\n') : 'No orders yet'}
+
+📝 *Recommendations:*
+${intent === 'interested' ? '→ User is interested, follow up with plan details' : ''}
+${intent === 'checking_device' ? '→ User checking device compatibility' : ''}
+${pendingOrder ? '→ Payment verification pending - follow up!' : ''}
+${hasBought ? '→ Customer - offer support for activation' : ''}`;
+    } catch (e) {
+        return `❌ Error analyzing user: ${e.message}`;
+    }
+}
+
 function formatUptime(ms) {
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
@@ -1634,7 +1871,11 @@ function formatUptime(ms) {
 
 function formatHelp(category) {
     if (category === 'all') {
-        return `📚 *AVAILABLE COMMANDS* (${Object.keys(ADMIN_COMMANDS).length} total)\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !active-users\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !logs\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n📈 Stats: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n\nUse !help <category> for more details\nExample: !help broadcast`;
+        return `📚 *AVAILABLE COMMANDS* (${Object.keys(ADMIN_COMMANDS).length} total)\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !active-users\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !logs\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n🔒 Test Board: !test-mode, !whitelist-add, !whitelist-list\n📈 Stats: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n\nUse !help <category> for more details\nExample: !help broadcast`;
+    }
+
+    if (category === 'testboard') {
+        return `🔒 *TEST BOARD / PRIVATE MODE COMMANDS*\n\n!test-mode [on/off] - Toggle whitelist mode\n!whitelist-add <number> - Add to whitelist\n!whitelist-remove <number> - Remove from whitelist\n!whitelist-list - Show whitelisted numbers\n!whitelist-clear - Clear all whitelist\n!shutdown [reason] - Gracefully shutdown bot\n!user-status <number> - Analyze user intent\n!external-msgs - View non-whitelist messages\n\n*Test Mode:* Only whitelisted numbers can use bot\n*Public Mode:* Everyone can use bot`;
     }
 
     if (category === 'guides') {
@@ -2419,6 +2660,18 @@ async function startWhatsApp() {
                 }
             }
 
+            // 🚫 WHITELIST/PRIVATE MODE CHECK
+            // Only check if not admin and bot is in test mode
+            if (TEST_BOARD.enabled && !isAdmin(chatId) && !isWhitelisted(chatId)) {
+                // Store message for later review
+                if (TEST_BOARD.saveExternalMessages) {
+                    await saveExternalMessage(chatId, body);
+                }
+                await msg.reply(TEST_BOARD.message);
+                log(`Blocked non-whitelisted user: ${chatId}`, 'security');
+                return;
+            }
+
             // Check maintenance mode (only for non-admin users)
             if (AdminState.maintenanceMode && !AdminState.isAdminChat(chatId)) {
                 await msg.reply('🔧 *Maintenance Mode*\n\nBot temporarily under maintenance. Please try again later! 🙏');
@@ -2476,8 +2729,12 @@ async function startWhatsApp() {
                             const chatContext = await getChatContext(chatId, msg);
                             const chatSummary = await analyzeChatWithAI(chatId, chatContext);
 
-                            // Create detailed verification message
-                            const verificationMsg = `⏳ *PENDING VERIFICATION*\n\n👤 *Customer:* ${chatId}\n📦 *Plan:* ${verification.planType || 'Unknown'}\n💰 *Amount:* Rs. ${verification.amount || 'N/A'}\n💳 *Method:* ${verification.paymentMethod || 'Unknown'}\n📊 *Confidence:* ${verification.confidence}%\n\n📝 *Original Message:* ${body.slice(0, 100)}${body.length > 100 ? '...' : ''}\n\n📊 *Chat Analysis:*\n${chatSummary}\n\n✅ *Quick Actions:*\nReply to this message with:\n• "!approve" - Verify & send plan\n• "!reject [reason]" - Decline payment\n• "!check" - View full chat history`;
+                            // Create detailed verification message with Gemini insights
+                            const geminiInfo = verification.geminiAnalysis
+                                ? `\n🤖 *Gemini AI Analysis:*\nType: ${verification.geminiAnalysis.type}\nConfidence: ${verification.geminiAnalysis.confidence}%${verification.geminiAnalysis.textExtracted ? `\nExtracted: "${verification.geminiAnalysis.textExtracted.substring(0, 100)}..."` : ''}`
+                                : '';
+
+                            const verificationMsg = `⏳ *PENDING VERIFICATION*${geminiInfo}\n\n👤 *Customer:* ${chatId}\n📦 *Plan:* ${verification.planType || 'Unknown'}\n💰 *Amount:* Rs. ${verification.amount || 'N/A'}\n💳 *Method:* ${verification.paymentMethod || 'Unknown'}\n📊 *Confidence:* ${verification.confidence}%\n\n📝 *Original Message:* ${body.slice(0, 100)}${body.length > 100 ? '...' : ''}\n\n📊 *Chat Analysis:*\n${chatSummary}\n\n✅ *Quick Actions:*\nReply to this message with:\n• "!approve" - Verify & send plan\n• "!reject [reason]" - Decline payment\n• "!check" - View full chat history`;
 
                             let sentMsg;
 
@@ -2517,6 +2774,41 @@ async function startWhatsApp() {
                     }
                     return;
                 }
+            }
+
+            // 🖼️ HANDLE ISSUE SCREENSHOTS (analyzed by Gemini)
+            if (verification && verification.type === 'issue') {
+                await msg.reply(`🆘 *Issue Screenshot Received*\n
+Bhai, screenshot mil gaya! Main analyze kar raha hoon... 🤔`);
+
+                try {
+                    // Extract text from image using Gemini
+                    const media = await msg.downloadMedia();
+                    if (media && media.data) {
+                        const analysis = await analyzeImageWithGemini(media.data, media.mimetype, chatId, body);
+
+                        // Resolve issue using Groq AI
+                        const solution = await resolveIssueWithAI(
+                            analysis.textExtracted || '',
+                            analysis.description || body,
+                            chatId
+                        );
+
+                        await msg.reply(`🔧 *Issue Analysis Complete*\n\n${solution}`);
+
+                        // Notify admin about resolved issue
+                        if (ADMIN_NUMBER) {
+                            try {
+                                const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                                await client.sendMessage(adminChat, `🤖 *AI RESOLVED ISSUE*\n\nCustomer: ${chatId}\nIssue: ${analysis.description || body}\n\nAI Solution Sent:\n${solution.substring(0, 200)}...`);
+                            } catch (e) {}
+                        }
+                    }
+                } catch (e) {
+                    log('Issue resolution error: ' + e.message, 'error');
+                    await msg.reply(`🆘 *Support Request Received*\n\nBhai, screenshot mil gaya hai. Admin jaldi hi help karega! 🙏`);
+                }
+                return;
             }
 
                     // ⏸️ CHECK IF BOT IS PAUSED (for non-admin users)
