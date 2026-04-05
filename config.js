@@ -153,6 +153,219 @@ const BUSINESS = {
 };
 
 // ═══════════════════════════════════════════════════════
+// EDITABLE eSIM GUIDES — Admin can edit these via commands
+// ═══════════════════════════════════════════════════════
+const ESIIM_GUIDES = {
+  // 500MB Plan Guide
+  '500MB': {
+    enabled: true,
+    promoCode: 'AS48928',
+    provider: 'Eskimo',
+    iosAppLink: 'https://apps.apple.com/app/eskimo-esim/id123456789',
+    androidAppLink: 'https://play.google.com/store/apps/details?id=com.eskimo.travel',
+    qrCodeData: '500MB_PLAN_QR_CODE_DATA',
+    // Full guide template — use {{placeholders}} for dynamic values
+    template: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
+
+━━━━━━━━━━━━━━━━━━━
+📱 *YOUR eSIM DETAILS*
+━━━━━━━━━━━━━━━━━━━
+📦 Plan: {{planName}}
+📊 Data: {{data}}
+💰 Price: Rs. {{price}}
+⏱️ Validity: {{duration}}
+📱 Devices: {{devices}} Device
+
+━━━━━━━━━━━━━━━━━━━
+🔗 *{{provider}} APP DOWNLOAD*
+━━━━━━━━━━━━━━━━━━━
+📲 iOS: {{iosLink}}
+📲 Android: {{androidLink}}
+
+━━━━━━━━━━━━━━━━━━━
+🎁 *PROMO CODE*
+━━━━━━━━━━━━━━━━━━━
+Code: *{{promoCode}}*
+
+━━━━━━━━━━━━━━━━━━━
+📲 *ACTIVATION STEPS*
+━━━━━━━━━━━━━━━━━━━
+
+*Step 1: Download App*
+➜ Download {{provider}} App from above links
+
+*Step 2: Create Account*
+➜ Open app → Sign up with your number
+➜ Enter promo code: *{{promoCode}}*
+
+*Step 3: Add eSIM*
+➜ Settings → Cellular/Mobile Data
+➜ Tap "Add eSIM" or "Add Cellular Plan"
+➜ Scan QR code OR enter details manually
+
+*Step 4: Activate*
+➜ Wait 1-2 minutes for activation
+➜ You'll see signal bars 📶
+
+*Step 5: Enable Data Roaming*
+➜ Settings → Cellular → Data Roaming: ON ✅
+
+━━━━━━━━━━━━━━━━━━━
+⚠️ *IMPORTANT NOTES*
+━━━━━━━━━━━━━━━━━━━
+✅ Device must be Non-PTA
+✅ iPhone XS/XR or above
+✅ Data Roaming MUST be ON
+✅ Activation takes 2-5 minutes
+✅ QR code valid for 24 hours
+
+━━━━━━━━━━━━━━━━━━━
+❓ *NEED HELP?*
+━━━━━━━━━━━━━━━━━━━
+Type "support" for assistance
+
+*Shukriya SimFly Pakistan choose karne ke liye! 🙏*`
+  },
+
+  // 1GB Plan Guide
+  '1GB': {
+    enabled: true,
+    promoCode: 'SA1GB',
+    provider: 'Eskimo',
+    iosAppLink: 'https://apps.apple.com/app/eskimo-esim/id123456789',
+    androidAppLink: 'https://play.google.com/store/apps/details?id=com.eskimo.travel',
+    qrCodeData: '1GB_PLAN_QR_CODE_DATA',
+    template: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
+
+━━━━━━━━━━━━━━━━━━━
+📱 *YOUR eSIM DETAILS*
+━━━━━━━━━━━━━━━━━━━
+📦 Plan: {{planName}} (MOST POPULAR) 🔥
+📊 Data: {{data}}
+💰 Price: Rs. {{price}}
+⏱️ Validity: {{duration}}
+📱 Devices: {{devices}} Device
+
+━━━━━━━━━━━━━━━━━━━
+🔗 *{{provider}} APP DOWNLOAD*
+━━━━━━━━━━━━━━━━━━━
+📲 iOS: {{iosLink}}
+📲 Android: {{androidLink}}
+
+━━━━━━━━━━━━━━━━━━━
+🎁 *PROMO CODE*
+━━━━━━━━━━━━━━━━━━━
+Code: *{{promoCode}}*
+
+━━━━━━━━━━━━━━━━━━━
+📲 *ACTIVATION STEPS*
+━━━━━━━━━━━━━━━━━━━
+
+*Step 1: Download App*
+➜ Download {{provider}} App from above links
+
+*Step 2: Create Account*
+➜ Open app → Sign up with your number
+➜ Enter promo code: *{{promoCode}}*
+
+*Step 3: Add eSIM*
+➜ Settings → Cellular/Mobile Data
+➜ Tap "Add eSIM" or "Add Cellular Plan"
+➜ Scan QR code OR enter details manually
+
+*Step 4: Activate*
+➜ Wait 1-2 minutes for activation
+➜ You'll see signal bars 📶
+
+*Step 5: Enable Data Roaming*
+➜ Settings → Cellular → Data Roaming: ON ✅
+
+━━━━━━━━━━━━━━━━━━━
+⚠️ *IMPORTANT NOTES*
+━━━━━━━━━━━━━━━━━━━
+✅ Device must be Non-PTA
+✅ iPhone XS/XR or above
+✅ Data Roaming MUST be ON
+✅ Activation takes 2-5 minutes
+
+━━━━━━━━━━━━━━━━━━━
+❓ *NEED HELP?*
+━━━━━━━━━━━━━━━━━━━
+Type "support" for assistance
+
+*Shukriya SimFly Pakistan choose karne ke liye! 🙏*`
+  },
+
+  // 5GB Plan Guide (Manual - Admin sends)
+  '5GB': {
+    enabled: true,
+    promoCode: 'FAMILY5G',
+    provider: 'Eskimo',
+    iosAppLink: 'https://apps.apple.com/app/eskimo-esim/id123456789',
+    androidAppLink: 'https://play.google.com/store/apps/details?id=com.eskimo.travel',
+    qrCodeData: '5GB_PLAN_QR_CODE_DATA',
+    manualSend: true, // Admin must manually send this
+    template: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
+
+━━━━━━━━━━━━━━━━━━━
+📱 *YOUR eSIM DETAILS*
+━━━━━━━━━━━━━━━━━━━
+📦 Plan: {{planName}} (FAMILY PACK) 💎
+📊 Data: {{data}}
+💰 Price: Rs. {{price}}
+⏱️ Validity: {{duration}}
+📱 Devices: {{devices}} Devices (Simultaneous)
+
+━━━━━━━━━━━━━━━━━━━
+🔗 *{{provider}} APP DOWNLOAD*
+━━━━━━━━━━━━━━━━━━━
+📲 iOS: {{iosLink}}
+📲 Android: {{androidLink}}
+
+━━━━━━━━━━━━━━━━━━━
+🎁 *PROMO CODE*
+━━━━━━━━━━━━━━━━━━━
+Code: *{{promoCode}}*
+
+━━━━━━━━━━━━━━━━━━━
+📲 *ACTIVATION STEPS*
+━━━━━━━━━━━━━━━━━━━
+
+*Step 1: Download App*
+➜ Download {{provider}} App on all 4 devices
+
+*Step 2: Create Account*
+➜ Same account se login karein sab devices pe
+➜ Enter promo code: *{{promoCode}}*
+
+*Step 3: Add eSIM on Each Device*
+➜ Settings → Cellular → Add eSIM
+➜ Scan QR code OR enter details manually
+
+*Step 4: Activate*
+➜ Sab devices pe 1-2 min wait karein
+
+*Step 5: Enable Data Roaming*
+➜ Settings → Cellular → Data Roaming: ON ✅
+
+━━━━━━━━━━━━━━━━━━━
+⚠️ *IMPORTANT NOTES*
+━━━━━━━━━━━━━━━━━━━
+✅ 4 devices simultaneously use kar sakte hain
+✅ Same promo code works on all devices
+✅ Data Roaming MUST be ON
+✅ Device must be Non-PTA
+
+━━━━━━━━━━━━━━━━━━━
+❓ *NEED HELP?*
+━━━━━━━━━━━━━━━━━━━
+Type "support" for assistance
+
+*Shukriya SimFly Pakistan choose karne ke liye! 🙏*`
+  }
+};
+
+// ═══════════════════════════════════════════════════════
 // BOT BEHAVIOR SETTINGS
 // ═══════════════════════════════════════════════════════
 const BOT_CONFIG = {
@@ -352,6 +565,7 @@ module.exports = {
   // Content
   SYSTEM_PROMPT,
   KEYWORD_RESPONSES,
+  ESIIM_GUIDES,
 
   // Settings
   DB_CONFIG,

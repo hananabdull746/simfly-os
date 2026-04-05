@@ -25,6 +25,7 @@ const {
     KEYWORD_RESPONSES,
     DB_CONFIG,
     PUPPETEER_CONFIG,
+    ESIIM_GUIDES,
     isGroqEnabled,
     isFirebaseEnabled
 } = require('./config');
@@ -33,6 +34,58 @@ const {
 
 // Import Automation Config
 const { AUTOMATION } = require('./config');
+
+// ═══════════════════════════════════════════════════════
+// CUSTOM GUIDES STORAGE — Admin editable guides (stored in memory + file)
+// ═══════════════════════════════════════════════════════
+let customGuides = {};
+const GUIDES_FILE = './data/custom_guides.json';
+
+// Load custom guides from file on startup
+function loadCustomGuides() {
+    try {
+        if (fs.existsSync(GUIDES_FILE)) {
+            const data = fs.readFileSync(GUIDES_FILE, 'utf8');
+            customGuides = JSON.parse(data);
+            log('Custom guides loaded from file', 'info');
+        } else {
+            // Initialize with default guides
+            customGuides = JSON.parse(JSON.stringify(ESIIM_GUIDES));
+            saveCustomGuides();
+        }
+    } catch (e) {
+        log('Error loading custom guides: ' + e.message, 'error');
+        customGuides = JSON.parse(JSON.stringify(ESIIM_GUIDES));
+    }
+}
+
+// Save custom guides to file
+function saveCustomGuides() {
+    try {
+        if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
+        fs.writeFileSync(GUIDES_FILE, JSON.stringify(customGuides, null, 2));
+    } catch (e) {
+        log('Error saving custom guides: ' + e.message, 'error');
+    }
+}
+
+// Get guide (custom or default)
+function getGuide(planType) {
+    return customGuides[planType] || ESIIM_GUIDES[planType] || null;
+}
+
+// Update guide field
+function updateGuide(planType, field, value) {
+    if (!customGuides[planType]) {
+        customGuides[planType] = JSON.parse(JSON.stringify(ESIIM_GUIDES[planType] || {}));
+    }
+    customGuides[planType][field] = value;
+    saveCustomGuides();
+    return true;
+}
+
+// Initialize guides on startup
+loadCustomGuides();
 
 // ============================================
 // GEMINI AI IMAGE ANALYSIS SYSTEM
@@ -681,227 +734,48 @@ async function verifyPaymentScreenshot(msg, chatId, body) {
     return verificationResult;
 }
 
+// ═══════════════════════════════════════════════════════
+// 📋 EDITABLE PLAN GUIDES — Admin can customize via commands
+// ═══════════════════════════════════════════════════════
 async function getPlanDetails(planType) {
-    const plans = {
-        '500MB': {
-            name: '500MB',
-            data: '500MB',
-            price: 130,
-            duration: '2 Years',
-            devices: 1,
-            qrCode: '500MB_PLAN_QR_CODE_DATA',
-            promoCode: 'AS48928',
-            esimProvider: 'Eskimo',
-            setupInstructions: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
+    // Get guide config (custom or default)
+    const guide = getGuide(planType);
+    if (!guide) return null;
 
-━━━━━━━━━━━━━━━━━━━
-📱 *YOUR eSIM DETAILS*
-━━━━━━━━━━━━━━━━━━━
-📦 Plan: 500MB
-📊 Data: 500MB
-💰 Price: Rs. 130
-⏱️ Validity: 2 Years
-📱 Devices: 1 Device
-
-━━━━━━━━━━━━━━━━━━━
-🔗 *ESKIMO APP DOWNLOAD*
-━━━━━━━━━━━━━━━━━━━
-📲 iOS: https://apps.apple.com/app/eskimo-esim/id123456789
-📲 Android: https://play.google.com/store/apps/details?id=com.eskimo.travel
-
-━━━━━━━━━━━━━━━━━━━
-🎁 *PROMO CODE*
-━━━━━━━━━━━━━━━━━━━
-Code: *AS48928*
-
-━━━━━━━━━━━━━━━━━━━
-📲 *ACTIVATION STEPS*
-━━━━━━━━━━━━━━━━━━━
-
-*Step 1: Download App*
-➜ Download Eskimo App from above links
-
-*Step 2: Create Account*
-➜ Open app → Sign up with your number
-➜ Enter promo code: *AS48928*
-
-*Step 3: Add eSIM*
-➜ Settings → Cellular/Mobile Data
-➜ Tap "Add eSIM" or "Add Cellular Plan"
-➜ Scan QR code OR enter details manually
-
-*Step 4: Activate*
-➜ Wait 1-2 minutes for activation
-➜ You'll see signal bars 📶
-
-*Step 5: Enable Data Roaming*
-➜ Settings → Cellular → Data Roaming: ON ✅
-
-━━━━━━━━━━━━━━━━━━━
-⚠️ *IMPORTANT NOTES*
-━━━━━━━━━━━━━━━━━━━
-✅ Device must be Non-PTA
-✅ iPhone XS/XR or above
-✅ Data Roaming MUST be ON
-✅ Activation takes 2-5 minutes
-✅ QR code valid for 24 hours
-
-━━━━━━━━━━━━━━━━━━━
-❓ *NEED HELP?*
-━━━━━━━━━━━━━━━━━━━
-Type "support" for assistance
-
-*Shukriya SimFly Pakistan choose karne ke liye! 🙏*`
-        },
-        '1GB': {
-            name: '1GB',
-            data: '1GB',
-            price: 400,
-            duration: '2 Years',
-            devices: 1,
-            qrCode: '1GB_PLAN_QR_CODE_DATA',
-            promoCode: 'SA1GB',
-            esimProvider: 'Eskimo',
-            setupInstructions: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
-
-━━━━━━━━━━━━━━━━━━━
-📱 *YOUR eSIM DETAILS*
-━━━━━━━━━━━━━━━━━━━
-📦 Plan: 1GB (MOST POPULAR) 🔥
-📊 Data: 1GB
-💰 Price: Rs. 400
-⏱️ Validity: 2 Years
-📱 Devices: 1 Device
-
-━━━━━━━━━━━━━━━━━━━
-🔗 *ESKIMO APP DOWNLOAD*
-━━━━━━━━━━━━━━━━━━━
-📲 iOS: https://apps.apple.com/app/eskimo-esim/id123456789
-📲 Android: https://play.google.com/store/apps/details?id=com.eskimo.travel
-
-━━━━━━━━━━━━━━━━━━━
-🎁 *PROMO CODE*
-━━━━━━━━━━━━━━━━━━━
-Code: *SA1GB*
-
-━━━━━━━━━━━━━━━━━━━
-📲 *ACTIVATION STEPS*
-━━━━━━━━━━━━━━━━━━━
-
-*Step 1: Download App*
-➜ Download Eskimo App from above links
-
-*Step 2: Create Account*
-➜ Open app → Sign up with your number
-➜ Enter promo code: *SA1GB*
-
-*Step 3: Add eSIM*
-➜ Settings → Cellular/Mobile Data
-➜ Tap "Add eSIM" or "Add Cellular Plan"
-➜ Scan QR code OR enter details manually
-
-*Step 4: Activate*
-➜ Wait 1-2 minutes for activation
-➜ You'll see signal bars 📶
-
-*Step 5: Enable Data Roaming*
-➜ Settings → Cellular → Data Roaming: ON ✅
-
-━━━━━━━━━━━━━━━━━━━
-⚠️ *IMPORTANT NOTES*
-━━━━━━━━━━━━━━━━━━━
-✅ Device must be Non-PTA
-✅ iPhone XS/XR or above
-✅ Data Roaming MUST be ON
-✅ Activation takes 2-5 minutes
-✅ QR code valid for 24 hours
-
-━━━━━━━━━━━━━━━━━━━
-❓ *NEED HELP?*
-━━━━━━━━━━━━━━━━━━━
-Type "support" for assistance
-
-*Shukriya SimFly Pakistan choose karne ke liye! 🙏*`
-        },
-        '5GB': {
-            name: '5GB',
-            data: '5GB',
-            price: 1500,
-            duration: '2 Years',
-            devices: 4,
-            qrCode: '5GB_PLAN_QR_CODE_DATA',
-            promoCode: 'SIMFLY5GB',
-            esimProvider: 'Eskimo',
-            setupInstructions: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
-
-━━━━━━━━━━━━━━━━━━━
-📱 *YOUR eSIM DETAILS*
-━━━━━━━━━━━━━━━━━━━
-📦 Plan: 5GB (FAMILY PACK) 💎
-📊 Data: 5GB Shared
-💰 Price: Rs. 1500
-⏱️ Validity: 2 Years
-📱 Devices: 4 Devices Simultaneously
-
-━━━━━━━━━━━━━━━━━━━
-🔗 *ESKIMO APP DOWNLOAD*
-━━━━━━━━━━━━━━━━━━━
-📲 iOS: https://apps.apple.com/app/eskimo-esim/id123456789
-📲 Android: https://play.google.com/store/apps/details?id=com.eskimo.travel
-
-━━━━━━━━━━━━━━━━━━━
-🎁 *PROMO CODE*
-━━━━━━━━━━━━━━━━━━━
-Code: *SIMFLY5GB*
-
-━━━━━━━━━━━━━━━━━━━
-📲 *ACTIVATION STEPS*
-━━━━━━━━━━━━━━━━━━━
-
-*Step 1: Download App*
-➜ Download Eskimo App from above links
-
-*Step 2: Create Account*
-➜ Open app → Sign up with your number
-➜ Enter promo code: *SIMFLY5GB*
-
-*Step 3: Add eSIM to Primary Device*
-➜ Settings → Cellular/Mobile Data
-➜ Tap "Add eSIM" or "Add Cellular Plan"
-➜ Scan QR code OR enter details manually
-
-*Step 4: Activate*
-➜ Wait 1-2 minutes for activation
-➜ You'll see signal bars 📶
-
-*Step 5: Share with Family (4 Devices)*
-➜ Share same QR code with up to 4 devices
-➜ Each device follow steps 3-4
-➜ All devices can use simultaneously
-
-*Step 6: Enable Data Roaming*
-➜ Settings → Cellular → Data Roaming: ON ✅
-
-━━━━━━━━━━━━━━━━━━━
-⚠️ *IMPORTANT NOTES*
-━━━━━━━━━━━━━━━━━━━
-✅ Device must be Non-PTA
-✅ iPhone XS/XR or above
-✅ Data Roaming MUST be ON
-✅ All 4 devices can use same time
-✅ Activation takes 2-5 minutes per device
-✅ QR code valid for 24 hours
-
-━━━━━━━━━━━━━━━━━━━
-❓ *NEED HELP?*
-━━━━━━━━━━━━━━━━━━━
-Type "support" for assistance
-
-*Shukriya SimFly Pakistan choose karne ke liye! 🙏*`
-        }
+    // Plan specs
+    const planSpecs = {
+        '500MB': { name: '500MB', data: '500MB', price: 130, devices: 1 },
+        '1GB': { name: '1GB', data: '1GB', price: 400, devices: 1 },
+        '5GB': { name: '5GB', data: '5GB', price: 1500, devices: 4 }
     };
 
-    return plans[planType] || null;
+    const specs = planSpecs[planType];
+    if (!specs) return null;
+
+    // Replace placeholders in template
+    let setupInstructions = guide.template
+        .replace(/{{planName}}/g, specs.name)
+        .replace(/{{data}}/g, specs.data)
+        .replace(/{{price}}/g, specs.price)
+        .replace(/{{duration}}/g, '2 Years')
+        .replace(/{{devices}}/g, specs.devices)
+        .replace(/{{provider}}/g, guide.provider || 'Eskimo')
+        .replace(/{{promoCode}}/g, guide.promoCode || 'NOCODE')
+        .replace(/{{iosLink}}/g, guide.iosAppLink || '')
+        .replace(/{{androidLink}}/g, guide.androidAppLink || '');
+
+    return {
+        name: specs.name,
+        data: specs.data,
+        price: specs.price,
+        duration: '2 Years',
+        devices: specs.devices,
+        qrCode: guide.qrCodeData || `${planType}_QR_CODE`,
+        promoCode: guide.promoCode || 'NOCODE',
+        esimProvider: guide.provider || 'Eskimo',
+        manualSend: guide.manualSend || false,
+        setupInstructions
+    };
 }
 
 async function sendPlanDetailsAfterVerification(chatId, planType) {
@@ -1101,6 +975,19 @@ const ADMIN_COMMANDS = {
     '!promo-delete': { desc: 'Delete promo code', usage: '!promo-delete <code>', category: 'plans' },
     '!promo-list': { desc: 'List promo codes', usage: '!promo-list', category: 'plans' },
     '!promo-validate': { desc: 'Validate promo code', usage: '!promo-validate <code>', category: 'plans' },
+
+    // 📚 GUIDE MANAGEMENT — Edit eSIM guides
+    '!guides': { desc: 'List all guides', usage: '!guides', category: 'guides' },
+    '!guide-show': { desc: 'Show guide for plan', usage: '!guide-show <500MB|1GB|5GB>', category: 'guides' },
+    '!guide-edit': { desc: 'Edit guide template', usage: '!guide-edit <plan> | <new-template>', category: 'guides' },
+    '!guide-promo': { desc: 'Update promo code', usage: '!guide-promo <plan> | <new-code>', category: 'guides' },
+    '!guide-provider': { desc: 'Update provider name', usage: '!guide-provider <plan> | <provider>', category: 'guides' },
+    '!guide-links': { desc: 'Update app links', usage: '!guide-links <plan> | <ios-link> | <android-link>', category: 'guides' },
+    '!guide-reset': { desc: 'Reset guide to default', usage: '!guide-reset <plan>', category: 'guides' },
+    '!guide-preview': { desc: 'Preview guide with actual values', usage: '!guide-preview <plan>', category: 'guides' },
+    '!guide-send': { desc: 'Manually send guide to user', usage: '!guide-send <number> | <plan>', category: 'guides' },
+    '!guide-enable': { desc: 'Enable auto-send for plan', usage: '!guide-enable <plan>', category: 'guides' },
+    '!guide-disable': { desc: 'Disable auto-send for plan', usage: '!guide-disable <plan>', category: 'guides' },
 
     // 💳 PAYMENT MANAGEMENT
     '!payments': { desc: 'List payment methods', usage: '!payments', category: 'payment' },
@@ -1551,7 +1438,7 @@ async function handleAdminCommand(msg, chatId, body) {
     }
 
     if (command === '!admin-help') {
-        return `📚 *ADMIN COMMAND CATEGORIES*\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !user-msg\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !maintenance\n💎 Plans: !plans\n📈 Analytics: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n❓ Help: !help, !cmd\n\nUse !help <category> for details`;
+        return `📚 *ADMIN COMMAND CATEGORIES*\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !user-msg\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !maintenance\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n📈 Analytics: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n❓ Help: !help, !cmd\n\nUse !help <category> for details`;
     }
 
     if (command === '!about') {
@@ -1573,6 +1460,86 @@ async function handleAdminCommand(msg, chatId, body) {
         State.pauseReason = null;
         log(`Bot RESUMED by ${chatId}`, 'admin');
         return `▶️ *BOT RESUMED*\n\n✅ Auto-replies ON hain\n🤖 Bot ab automatically reply karega\n\n⏸️ Pause karne ke liye: !stop`;
+    }
+
+    // 📚 GUIDE MANAGEMENT
+    if (command === '!guides') {
+        const guideList = Object.keys(customGuides).map(plan => {
+            const g = customGuides[plan];
+            return `📱 *${plan}*\n   Promo: ${g.promoCode || 'N/A'}\n   Provider: ${g.provider || 'N/A'}\n   Status: ${g.enabled !== false ? '✅ Enabled' : '❌ Disabled'}`;
+        }).join('\n\n');
+        return `📚 *CUSTOM GUIDES*\n\n${guideList || 'No custom guides configured'}\n\nUse !guide-show <plan> to view details`;
+    }
+
+    if (command === '!guide-show') {
+        if (!args) return '❌ Usage: !guide-show <500MB|1GB|5GB>';
+        const plan = args.toUpperCase();
+        const g = getGuide(plan);
+        if (!g) return `❌ Guide not found for ${plan}`;
+        return `📱 *${plan} GUIDE CONFIG*\n\n🎁 Promo Code: ${g.promoCode}\n🏢 Provider: ${g.provider}\n📲 iOS Link: ${g.iosAppLink ? g.iosAppLink.substring(0, 40) + '...' : 'Not set'}\n📲 Android: ${g.androidAppLink ? g.androidAppLink.substring(0, 40) + '...' : 'Not set'}\n✅ Enabled: ${g.enabled !== false ? 'Yes' : 'No'}\n\nUse !guide-preview ${plan} to see full guide`;
+    }
+
+    if (command === '!guide-preview') {
+        if (!args) return '❌ Usage: !guide-preview <500MB|1GB|5GB>';
+        const plan = args.toUpperCase();
+        const planDetails = await getPlanDetails(plan);
+        if (!planDetails) return `❌ Plan not found: ${plan}`;
+        return `📱 *${plan} GUIDE PREVIEW*\n\n${planDetails.setupInstructions.substring(0, 1500)}${planDetails.setupInstructions.length > 1500 ? '...' : ''}`;
+    }
+
+    if (command === '!guide-promo') {
+        const [plan, ...codeParts] = args.split('|').map(s => s.trim());
+        if (!plan || !codeParts.length) return '❌ Usage: !guide-promo <plan> | <new-code>';
+        const code = codeParts.join(' ');
+        updateGuide(plan.toUpperCase(), 'promoCode', code);
+        return `✅ Promo code updated for ${plan.toUpperCase()}\n\nNew Code: *${code}*\n\nNext approved order will use this code!`;
+    }
+
+    if (command === '!guide-provider') {
+        const [plan, provider] = args.split('|').map(s => s.trim());
+        if (!plan || !provider) return '❌ Usage: !guide-provider <plan> | <provider-name>';
+        updateGuide(plan.toUpperCase(), 'provider', provider);
+        return `✅ Provider updated for ${plan.toUpperCase()}\n\nNew Provider: *${provider}*\n\nNext approved order will use this provider!`;
+    }
+
+    if (command === '!guide-links') {
+        const parts = args.split('|').map(s => s.trim());
+        if (parts.length < 3) return '❌ Usage: !guide-links <plan> | <ios-link> | <android-link>';
+        const [plan, iosLink, androidLink] = parts;
+        updateGuide(plan.toUpperCase(), 'iosAppLink', iosLink);
+        updateGuide(plan.toUpperCase(), 'androidAppLink', androidLink);
+        return `✅ App links updated for ${plan.toUpperCase()}\n\n📲 iOS: ${iosLink.substring(0, 50)}...\n📲 Android: ${androidLink.substring(0, 50)}...\n\nNext approved order will use these links!`;
+    }
+
+    if (command === '!guide-send') {
+        const [number, planType] = args.split('|').map(s => s.trim());
+        if (!number || !planType) return '❌ Usage: !guide-send <number> | <plan>';
+        const customerChatId = `${number.replace(/\D/g, '')}@c.us`;
+        await sendPlanDetailsAfterVerification(customerChatId, planType.toUpperCase());
+        return `✅ Guide sent to ${number}\n\nPlan: ${planType.toUpperCase()}`;
+    }
+
+    if (command === '!guide-enable') {
+        if (!args) return '❌ Usage: !guide-enable <500MB|1GB|5GB>';
+        updateGuide(args.toUpperCase(), 'enabled', true);
+        return `✅ Auto-send ENABLED for ${args.toUpperCase()}\n\nGuide will be sent automatically when admin approves payment.`;
+    }
+
+    if (command === '!guide-disable') {
+        if (!args) return '❌ Usage: !guide-disable <500MB|1GB|5GB>';
+        updateGuide(args.toUpperCase(), 'enabled', false);
+        return `⏸️ Auto-send DISABLED for ${args.toUpperCase()}\n\nGuide will NOT be sent automatically. Use !guide-send to send manually.`;
+    }
+
+    if (command === '!guide-reset') {
+        if (!args) return '❌ Usage: !guide-reset <500MB|1GB|5GB>';
+        const plan = args.toUpperCase();
+        if (ESIIM_GUIDES[plan]) {
+            customGuides[plan] = JSON.parse(JSON.stringify(ESIIM_GUIDES[plan]));
+            saveCustomGuides();
+            return `✅ Guide reset to DEFAULT for ${plan}\n\nAll changes have been reverted to original configuration.`;
+        }
+        return `❌ Guide not found for ${plan}`;
     }
 
     return null;
@@ -1667,7 +1634,11 @@ function formatUptime(ms) {
 
 function formatHelp(category) {
     if (category === 'all') {
-        return `📚 *AVAILABLE COMMANDS* (${Object.keys(ADMIN_COMMANDS).length} total)\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !active-users\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !logs\n💎 Plans: !plans\n📈 Stats: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n\nUse !help <category> for more details\nExample: !help broadcast`;
+        return `📚 *AVAILABLE COMMANDS* (${Object.keys(ADMIN_COMMANDS).length} total)\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !active-users\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !logs\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n📈 Stats: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n\nUse !help <category> for more details\nExample: !help broadcast`;
+    }
+
+    if (category === 'guides') {
+        return `📚 *GUIDE MANAGEMENT COMMANDS*\n\n!guides - List all guides\n!guide-show <plan> - Show guide config\n!guide-preview <plan> - Preview full guide\n!guide-promo <plan> | <code> - Update promo code\n!guide-provider <plan> | <name> - Update provider\n!guide-links <plan> | <iOS> | <Android> - Update app links\n!guide-send <number> | <plan> - Send guide manually\n!guide-enable <plan> - Enable auto-send\n!guide-disable <plan> - Disable auto-send\n!guide-reset <plan> - Reset to default\n\nExample: !guide-promo 1GB | NEWCODE123`;
     }
 
     const commands = Object.entries(ADMIN_COMMANDS)
