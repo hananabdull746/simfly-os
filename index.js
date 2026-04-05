@@ -65,15 +65,25 @@ function loadCustomGuides() {
         if (fs.existsSync(GUIDES_FILE)) {
             const data = fs.readFileSync(GUIDES_FILE, 'utf8');
             customGuides = JSON.parse(data);
-            log('Custom guides loaded from file', 'info');
+            if (typeof log === 'function') log('Custom guides loaded from file', 'info');
         } else {
             // Initialize with default guides
             customGuides = JSON.parse(JSON.stringify(ESIIM_GUIDES));
-            saveCustomGuides();
+            saveCustomGuidesInternal();
         }
     } catch (e) {
-        log('Error loading custom guides: ' + e.message, 'error');
+        if (typeof log === 'function') log('Error loading custom guides: ' + e.message, 'error');
         customGuides = JSON.parse(JSON.stringify(ESIIM_GUIDES));
+    }
+}
+
+// Internal save function (no logging)
+function saveCustomGuidesInternal() {
+    try {
+        if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
+        fs.writeFileSync(GUIDES_FILE, JSON.stringify(customGuides, null, 2));
+    } catch (e) {
+        // Silent fail
     }
 }
 
@@ -83,7 +93,7 @@ function saveCustomGuides() {
         if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
         fs.writeFileSync(GUIDES_FILE, JSON.stringify(customGuides, null, 2));
     } catch (e) {
-        log('Error saving custom guides: ' + e.message, 'error');
+        if (typeof log === 'function') log('Error saving custom guides: ' + e.message, 'error');
     }
 }
 
@@ -98,12 +108,9 @@ function updateGuide(planType, field, value) {
         customGuides[planType] = JSON.parse(JSON.stringify(ESIIM_GUIDES[planType] || {}));
     }
     customGuides[planType][field] = value;
-    saveCustomGuides();
+    saveCustomGuidesInternal();
     return true;
 }
-
-// Initialize guides on startup
-loadCustomGuides();
 
 // ═══════════════════════════════════════════════════════
 // 🤖 HUMAN-LIKE CONVERSATION SYSTEM — 30 Features
@@ -1291,6 +1298,9 @@ const State = {
     userSessions: new Map(), // Track user conversation state
     followupEnabled: true // Auto-followup feature
 };
+
+// Initialize guides after State is defined
+loadCustomGuides();
 
 // ============================================
 // ADMIN COMMAND SYSTEM (100+ Commands)
