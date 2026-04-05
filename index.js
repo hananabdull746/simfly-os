@@ -258,11 +258,6 @@ function getLastAnswer(chatId) {
     }
     return null;
 }
-    if (!userProfiles.has(chatId)) {
-        userProfiles.set(chatId, new UserProfile(chatId));
-    }
-    return userProfiles.get(chatId);
-}
 
 // Feature 4: Message Breakup
 function splitMessage(message) {
