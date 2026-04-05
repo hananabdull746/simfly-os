@@ -416,7 +416,8 @@ const State = {
     },
     botPaused: false, // Admin pause/resume control
     pausedBy: null, // Which admin paused
-    pauseReason: null // Why paused
+    pauseReason: null, // Why paused
+    userSessions: new Map() // Track user conversation state
 };
 
 // ============================================
@@ -1141,6 +1142,132 @@ async function getChatContext(chatId, currentMsg) {
 }
 
 // ============================================
+// 👤 USER SESSION & DEVICE CHECK FLOW
+// ============================================
+
+// Device compatibility database
+const DEVICE_COMPATIBILITY = {
+    // iPhones (iPhone XS and above support eSIM)
+    'iphone xs': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+    'iphone xr': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+    'iphone 11': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+    'iphone 12': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+    'iphone 13': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+    'iphone 14': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+    'iphone 15': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+    'iphone 16': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+    'iphone se 2': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+    'iphone se 3': { compatible: true, type: 'iPhone', note: 'eSIM supported ✅' },
+
+    // Samsung (S20 and above)
+    'samsung s20': { compatible: true, type: 'Samsung', note: 'eSIM supported ✅' },
+    'samsung s21': { compatible: true, type: 'Samsung', note: 'eSIM supported ✅' },
+    'samsung s22': { compatible: true, type: 'Samsung', note: 'eSIM supported ✅' },
+    'samsung s23': { compatible: true, type: 'Samsung', note: 'eSIM supported ✅' },
+    'samsung s24': { compatible: true, type: 'Samsung', note: 'eSIM supported ✅' },
+    'samsung z': { compatible: true, type: 'Samsung', note: 'eSIM supported ✅' }, // Fold/Flip series
+    'samsung note 20': { compatible: true, type: 'Samsung', note: 'eSIM supported ✅' },
+
+    // Google Pixel
+    'pixel 4': { compatible: true, type: 'Pixel', note: 'eSIM supported ✅' },
+    'pixel 5': { compatible: true, type: 'Pixel', note: 'eSIM supported ✅' },
+    'pixel 6': { compatible: true, type: 'Pixel', note: 'eSIM supported ✅' },
+    'pixel 7': { compatible: true, type: 'Pixel', note: 'eSIM supported ✅' },
+    'pixel 8': { compatible: true, type: 'Pixel', note: 'eSIM supported ✅' },
+    'pixel 9': { compatible: true, type: 'Pixel', note: 'eSIM supported ✅' },
+
+    // iPhone models that DON'T support eSIM
+    'iphone x': { compatible: false, type: 'iPhone', note: 'eSIM NOT supported ❌ iPhone XS se upar chahiye' },
+    'iphone 8': { compatible: false, type: 'iPhone', note: 'eSIM NOT supported ❌ iPhone XS se upar chahiye' },
+    'iphone 7': { compatible: false, type: 'iPhone', note: 'eSIM NOT supported ❌ iPhone XS se upar chahiye' },
+    'iphone 6': { compatible: false, type: 'iPhone', note: 'eSIM NOT supported ❌ iPhone XS se upar chahiye' },
+    'iphone se 1': { compatible: false, type: 'iPhone', note: 'eSIM NOT supported ❌ iPhone XS se upar chahiye' },
+
+    // Other brands
+    'xiaomi': { compatible: false, type: 'Other', note: 'eSIM support check karna hoga ❓' },
+    'oppo': { compatible: false, type: 'Other', note: 'eSIM support check karna hoga ❓' },
+    'vivo': { compatible: false, type: 'Other', note: 'eSIM support check karna hoga ❓' },
+    'huawei': { compatible: false, type: 'Other', note: 'eSIM support check karna hoga ❓' },
+    'oneplus': { compatible: false, type: 'Other', note: 'eSIM support check karna hoga ❓' },
+};
+
+// Check if user is new (first time messaging)
+async function isNewUser(chatId) {
+    const history = await getHistory(chatId);
+    return history.length <= 1; // Only current message or empty
+}
+
+// Get user session
+function getUserSession(chatId) {
+    return State.userSessions.get(chatId) || { state: 'new', step: 0 };
+}
+
+// Update user session
+function setUserSession(chatId, session) {
+    State.userSessions.set(chatId, session);
+    // Cleanup old sessions if too many
+    if (State.userSessions.size > 500) {
+        const firstKey = State.userSessions.keys().next().value;
+        State.userSessions.delete(firstKey);
+    }
+}
+
+// Check device compatibility
+function checkDeviceCompatibility(deviceName) {
+    const lowerDevice = deviceName.toLowerCase();
+
+    // Check exact matches first
+    for (const [device, info] of Object.entries(DEVICE_COMPATIBILITY)) {
+        if (lowerDevice.includes(device)) {
+            return { ...info, matchedDevice: device };
+        }
+    }
+
+    // Check partial matches
+    if (lowerDevice.includes('iphone')) {
+        // Extract model number if present
+        const modelMatch = lowerDevice.match(/iphone\s*(\d+)|(\d+)\s*pro|(\d+)\s*plus/i);
+        if (modelMatch) {
+            const modelNum = parseInt(modelMatch[1] || modelMatch[2] || modelMatch[3]);
+            if (modelNum >= 11) {
+                return { compatible: true, type: 'iPhone', note: 'eSIM supported ✅', matchedDevice: `iPhone ${modelNum}` };
+            } else if (modelNum === 10 || modelNum === 'x') {
+                return { compatible: false, type: 'iPhone', note: 'eSIM NOT supported ❌ iPhone XS se upar chahiye', matchedDevice: 'iPhone X' };
+            }
+        }
+        // Check for JV
+        if (lowerDevice.includes('jv') || lowerDevice.includes('japanese')) {
+            return { compatible: true, type: 'iPhone', note: 'JV iPhone mein eSIM work karti hai ✅ Bas Non-PTA hona chahiye', matchedDevice: 'JV iPhone' };
+        }
+        return { compatible: null, type: 'iPhone', note: 'iPhone XS se upar ke models mein eSIM work karti hai', matchedDevice: 'iPhone' };
+    }
+
+    if (lowerDevice.includes('samsung') || lowerDevice.includes('galaxy')) {
+        const sMatch = lowerDevice.match(/s(\d+)/);
+        if (sMatch) {
+            const sNum = parseInt(sMatch[1]);
+            if (sNum >= 20) {
+                return { compatible: true, type: 'Samsung', note: 'eSIM supported ✅', matchedDevice: `Samsung S${sNum}` };
+            }
+        }
+        return { compatible: null, type: 'Samsung', note: 'Samsung S20 series se upar mein eSIM supported hai', matchedDevice: 'Samsung' };
+    }
+
+    if (lowerDevice.includes('pixel')) {
+        const pMatch = lowerDevice.match(/pixel\s*(\d+)/);
+        if (pMatch) {
+            const pNum = parseInt(pMatch[1]);
+            if (pNum >= 4) {
+                return { compatible: true, type: 'Pixel', note: 'eSIM supported ✅', matchedDevice: `Pixel ${pNum}` };
+            }
+        }
+        return { compatible: null, type: 'Pixel', note: 'Pixel 4 se upar mein eSIM supported hai', matchedDevice: 'Google Pixel' };
+    }
+
+    return { compatible: null, type: 'Unknown', note: 'Device compatibility check karna hoga', matchedDevice: deviceName };
+}
+
+// ============================================
 // GROQ AI RESPONSE GENERATION
 // ============================================
 // Track API failures for circuit breaker
@@ -1647,6 +1774,87 @@ async function startWhatsApp() {
                 log(`Bot PAUSED - skipping auto-reply for ${chatId}`, 'info');
                 // Silently ignore - admin will manually reply
                 return;
+            }
+
+            // 👤 NEW USER FLOW: Check if user needs device verification first
+            const isNew = await isNewUser(chatId);
+            const userSession = getUserSession(chatId);
+
+            if (isNew && userSession.state === 'new') {
+                // First message from new user - ask for device name
+                setUserSession(chatId, { state: 'awaiting_device', step: 1 });
+
+                const welcomeMsg = `Assalam-o-Alaikum bhai! 👋 SimFly Pakistan mein khush amdeed! 😊\n\nMain aapki device check kar leta hoon ke eSIM work karegi ya nahi.\n\n📱 *Apna device ka naam batain:*\n\n(Jaise: iPhone 14 Pro Max, Samsung S23, etc.)\n\nAapka kaunsa device hai? 🤔`;
+
+                await msg.reply(welcomeMsg);
+                await saveMessage(chatId, { body: welcomeMsg, fromMe: true, time: Date.now() });
+                return;
+            }
+
+            if (userSession.state === 'awaiting_device') {
+                // User replied with device name - check compatibility
+                const deviceCheck = checkDeviceCompatibility(body);
+                let deviceResponse = '';
+
+                if (deviceCheck.compatible === true) {
+                    deviceResponse = `✅ *Good News!*\n\n${deviceCheck.matchedDevice} mein eSIM *work karegi!* 🔥\n\n${deviceCheck.note}\n\n⚠️ *Important:* Device *Non-PTA* hona chahiye.\n\nKya aapka device Non-PTA hai?\n\n*Haan* likhain toh plans dikha deta hoon! 📱`;
+                    setUserSession(chatId, { state: 'awaiting_pta_confirm', step: 2, device: deviceCheck.matchedDevice });
+                } else if (deviceCheck.compatible === false) {
+                    deviceResponse = `❌ *Sorry Bhai!*\n\n${deviceCheck.matchedDevice} mein eSIM *work nahi karegi.*\n\n${deviceCheck.note}\n\n💡 *Suggestion:* iPhone XS/XR se upar ka model lena hoga, ya Samsung S20 series.\n\nKoi aur device hai aapke paas? 🤔`;
+                    setUserSession(chatId, { state: 'device_not_compatible', step: 2, device: deviceCheck.matchedDevice });
+                } else {
+                    // Uncertain - ask for clarification
+                    deviceResponse = `🤔 *Device Check*\n\n"${body}" ka compatibility confirm karna hai.\n\n${deviceCheck.note}\n\n💡 *Supported Devices:*\n📱 iPhone XS, XR, 11, 12, 13, 14, 15, 16 series\n📱 Samsung S20, S21, S22, S23, S24 series\n📱 Google Pixel 4+\n\nAapka device in mein se kaunsa hai? 😊`;
+                    setUserSession(chatId, { state: 'awaiting_device', step: 1 });
+                }
+
+                await msg.reply(deviceResponse);
+                await saveMessage(chatId, { body: deviceResponse, fromMe: true, time: Date.now() });
+                return;
+            }
+
+            if (userSession.state === 'awaiting_pta_confirm') {
+                const lowerBody = body.toLowerCase();
+                if (lowerBody.includes('han') || lowerBody.includes('yes') || lowerBody.includes('y') || lowerBody.includes('haan') || lowerBody.includes('جی')) {
+                    // User confirmed Non-PTA - show plans
+                    const plansMsg = `✅ *Perfect!*\n\nAb main aapko plans dikha deta hoon:\n\n⚡ *500MB* - Rs. 130 (2 saal)\n🔥 *1GB* - Rs. 400 (Most Popular)\n💎 *5GB* - Rs. 1500 (4 devices)\n\nKaunsa plan pasand hai bhai? 🤔\n\nYa koi aur sawal hai toh pooch sakte hain! 😊`;
+
+                    setUserSession(chatId, { state: 'active', step: 3, device: userSession.device });
+                    await msg.reply(plansMsg);
+                    await saveMessage(chatId, { body: plansMsg, fromMe: true, time: Date.now() });
+                    return;
+                } else if (lowerBody.includes('pta') || lowerBody.includes('nahi') || lowerBody.includes('no') || lowerBody.includes('registered')) {
+                    const ptaMsg = `⚠️ *Important Notice*\n\nBhai, eSIM *sirf Non-PTA devices* pe work karti hai.\n\n❌ *PTA registered devices* pe eSIM work *nahi* karegi.\n\nAgar aapka device PTA registered hai toh unfortunately eSIM use nahi kar sakte.\n\nKoi aur device hai aapke paas jo Non-PTA ho? 🤔`;
+
+                    await msg.reply(ptaMsg);
+                    await saveMessage(chatId, { body: ptaMsg, fromMe: true, time: Date.now() });
+                    return;
+                } else {
+                    // Unclear response - ask again
+                    const clarifyMsg = `🤔 *Samajh nahi aaya bhai...*\n\nKya aapka device *Non-PTA* hai?\n\n*Haan* likhain agar Non-PTA hai\n*Nahi* likhain agar PTA registered hai\n\nIske baad main plans dikha deta hoon! 📱`;
+
+                    await msg.reply(clarifyMsg);
+                    await saveMessage(chatId, { body: clarifyMsg, fromMe: true, time: Date.now() });
+                    return;
+                }
+            }
+
+            if (userSession.state === 'device_not_compatible') {
+                // User has incompatible device, but maybe they have another device
+                const lowerBody = body.toLowerCase();
+                if (lowerBody.includes('han') || lowerBody.includes('yes') || lowerBody.includes('hai') || lowerBody.includes('iphone') || lowerBody.includes('samsung') || lowerBody.includes('pixel')) {
+                    // User mentioned another device - check it
+                    const deviceCheck = checkDeviceCompatibility(body);
+                    if (deviceCheck.compatible === true) {
+                        const otherDeviceMsg = `✅ *Great!*\n\n${deviceCheck.matchedDevice} mein eSIM work karegi! 🔥\n\nKya ye device *Non-PTA* hai?\n\n*Haan* likhain toh plans dikha deta hoon! 📱`;
+                        setUserSession(chatId, { state: 'awaiting_pta_confirm', step: 2, device: deviceCheck.matchedDevice });
+                        await msg.reply(otherDeviceMsg);
+                        await saveMessage(chatId, { body: otherDeviceMsg, fromMe: true, time: Date.now() });
+                        return;
+                    }
+                }
+                // Otherwise, continue to normal flow
+                setUserSession(chatId, { state: 'active', step: 3 });
             }
 
             // Regular message handling
