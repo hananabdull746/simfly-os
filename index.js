@@ -396,18 +396,68 @@ async function getPlanDetails(planType) {
             duration: '2 Years',
             devices: 1,
             qrCode: '500MB_PLAN_QR_CODE_DATA',
-            setupInstructions: `eSIM Setup Instructions:
+            promoCode: 'AS48928',
+            esimProvider: 'Eskimo',
+            setupInstructions: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
 
-1️⃣ Open Settings → Cellular/Mobile Data
-2️⃣ Tap "Add eSIM" or "Add Cellular Plan"
-3️⃣ Scan the QR code sent above
-4️⃣ Wait for activation (1-2 minutes)
-5️⃣ Done! ✅
+━━━━━━━━━━━━━━━━━━━
+📱 *YOUR eSIM DETAILS*
+━━━━━━━━━━━━━━━━━━━
+📦 Plan: 500MB
+📊 Data: 500MB
+💰 Price: Rs. 130
+⏱️ Validity: 2 Years
+📱 Devices: 1 Device
 
-⚠️ Important:
-- Make sure your device is Non-PTA
-- iPhone XS/XR or above required
-- eSIM will activate within 5 minutes`
+━━━━━━━━━━━━━━━━━━━
+🔗 *ESKIMO APP DOWNLOAD*
+━━━━━━━━━━━━━━━━━━━
+📲 iOS: https://apps.apple.com/app/eskimo-esim/id123456789
+📲 Android: https://play.google.com/store/apps/details?id=com.eskimo.travel
+
+━━━━━━━━━━━━━━━━━━━
+🎁 *PROMO CODE*
+━━━━━━━━━━━━━━━━━━━
+Code: *AS48928*
+
+━━━━━━━━━━━━━━━━━━━
+📲 *ACTIVATION STEPS*
+━━━━━━━━━━━━━━━━━━━
+
+*Step 1: Download App*
+➜ Download Eskimo App from above links
+
+*Step 2: Create Account*
+➜ Open app → Sign up with your number
+➜ Enter promo code: *AS48928*
+
+*Step 3: Add eSIM*
+➜ Settings → Cellular/Mobile Data
+➜ Tap "Add eSIM" or "Add Cellular Plan"
+➜ Scan QR code OR enter details manually
+
+*Step 4: Activate*
+➜ Wait 1-2 minutes for activation
+➜ You'll see signal bars 📶
+
+*Step 5: Enable Data Roaming*
+➜ Settings → Cellular → Data Roaming: ON ✅
+
+━━━━━━━━━━━━━━━━━━━
+⚠️ *IMPORTANT NOTES*
+━━━━━━━━━━━━━━━━━━━
+✅ Device must be Non-PTA
+✅ iPhone XS/XR or above
+✅ Data Roaming MUST be ON
+✅ Activation takes 2-5 minutes
+✅ QR code valid for 24 hours
+
+━━━━━━━━━━━━━━━━━━━
+❓ *NEED HELP?*
+━━━━━━━━━━━━━━━━━━━
+Type "support" for assistance
+
+*Shukriya SimFly Pakistan choose karne ke liye! 🙏*`
         },
         '1GB': {
             name: '1GB',
@@ -416,18 +466,68 @@ async function getPlanDetails(planType) {
             duration: '2 Years',
             devices: 1,
             qrCode: '1GB_PLAN_QR_CODE_DATA',
-            setupInstructions: `eSIM Setup Instructions:
+            promoCode: 'SA1GB',
+            esimProvider: 'Eskimo',
+            setupInstructions: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
 
-1️⃣ Open Settings → Cellular/Mobile Data
-2️⃣ Tap "Add eSIM" or "Add Cellular Plan"
-3️⃣ Scan the QR code sent above
-4️⃣ Wait for activation (1-2 minutes)
-5️⃣ Done! ✅
+━━━━━━━━━━━━━━━━━━━
+📱 *YOUR eSIM DETAILS*
+━━━━━━━━━━━━━━━━━━━
+📦 Plan: 1GB (MOST POPULAR) 🔥
+📊 Data: 1GB
+💰 Price: Rs. 400
+⏱️ Validity: 2 Years
+📱 Devices: 1 Device
 
-⚠️ Important:
-- Make sure your device is Non-PTA
-- iPhone XS/XR or above required
-- eSIM will activate within 5 minutes`
+━━━━━━━━━━━━━━━━━━━
+🔗 *ESKIMO APP DOWNLOAD*
+━━━━━━━━━━━━━━━━━━━
+📲 iOS: https://apps.apple.com/app/eskimo-esim/id123456789
+📲 Android: https://play.google.com/store/apps/details?id=com.eskimo.travel
+
+━━━━━━━━━━━━━━━━━━━
+🎁 *PROMO CODE*
+━━━━━━━━━━━━━━━━━━━
+Code: *SA1GB*
+
+━━━━━━━━━━━━━━━━━━━
+📲 *ACTIVATION STEPS*
+━━━━━━━━━━━━━━━━━━━
+
+*Step 1: Download App*
+➜ Download Eskimo App from above links
+
+*Step 2: Create Account*
+➜ Open app → Sign up with your number
+➜ Enter promo code: *SA1GB*
+
+*Step 3: Add eSIM*
+➜ Settings → Cellular/Mobile Data
+➜ Tap "Add eSIM" or "Add Cellular Plan"
+➜ Scan QR code OR enter details manually
+
+*Step 4: Activate*
+➜ Wait 1-2 minutes for activation
+➜ You'll see signal bars 📶
+
+*Step 5: Enable Data Roaming*
+➜ Settings → Cellular → Data Roaming: ON ✅
+
+━━━━━━━━━━━━━━━━━━━
+⚠️ *IMPORTANT NOTES*
+━━━━━━━━━━━━━━━━━━━
+✅ Device must be Non-PTA
+✅ iPhone XS/XR or above
+✅ Data Roaming MUST be ON
+✅ Activation takes 2-5 minutes
+✅ QR code valid for 24 hours
+
+━━━━━━━━━━━━━━━━━━━
+❓ *NEED HELP?*
+━━━━━━━━━━━━━━━━━━━
+Type "support" for assistance
+
+*Shukriya SimFly Pakistan choose karne ke liye! 🙏*`
         },
         '5GB': {
             name: '5GB',
@@ -436,20 +536,74 @@ async function getPlanDetails(planType) {
             duration: '2 Years',
             devices: 4,
             qrCode: '5GB_PLAN_QR_CODE_DATA',
-            setupInstructions: `eSIM Setup Instructions (5GB - 4 Devices):
+            promoCode: 'SIMFLY5GB',
+            esimProvider: 'Eskimo',
+            setupInstructions: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
 
-1️⃣ Open Settings → Cellular/Mobile Data
-2️⃣ Tap "Add eSIM" or "Add Cellular Plan"
-3️⃣ Scan the QR code sent above
-4️⃣ Wait for activation (1-2 minutes)
-5️⃣ Share QR with up to 4 devices
-6️⃣ Done! ✅
+━━━━━━━━━━━━━━━━━━━
+📱 *YOUR eSIM DETAILS*
+━━━━━━━━━━━━━━━━━━━
+📦 Plan: 5GB (FAMILY PACK) 💎
+📊 Data: 5GB Shared
+💰 Price: Rs. 1500
+⏱️ Validity: 2 Years
+📱 Devices: 4 Devices Simultaneously
 
-⚠️ Important:
-- Make sure your device is Non-PTA
-- iPhone XS/XR or above required
-- Can be used on 4 devices simultaneously
-- eSIM will activate within 5 minutes`
+━━━━━━━━━━━━━━━━━━━
+🔗 *ESKIMO APP DOWNLOAD*
+━━━━━━━━━━━━━━━━━━━
+📲 iOS: https://apps.apple.com/app/eskimo-esim/id123456789
+📲 Android: https://play.google.com/store/apps/details?id=com.eskimo.travel
+
+━━━━━━━━━━━━━━━━━━━
+🎁 *PROMO CODE*
+━━━━━━━━━━━━━━━━━━━
+Code: *SIMFLY5GB*
+
+━━━━━━━━━━━━━━━━━━━
+📲 *ACTIVATION STEPS*
+━━━━━━━━━━━━━━━━━━━
+
+*Step 1: Download App*
+➜ Download Eskimo App from above links
+
+*Step 2: Create Account*
+➜ Open app → Sign up with your number
+➜ Enter promo code: *SIMFLY5GB*
+
+*Step 3: Add eSIM to Primary Device*
+➜ Settings → Cellular/Mobile Data
+➜ Tap "Add eSIM" or "Add Cellular Plan"
+➜ Scan QR code OR enter details manually
+
+*Step 4: Activate*
+➜ Wait 1-2 minutes for activation
+➜ You'll see signal bars 📶
+
+*Step 5: Share with Family (4 Devices)*
+➜ Share same QR code with up to 4 devices
+➜ Each device follow steps 3-4
+➜ All devices can use simultaneously
+
+*Step 6: Enable Data Roaming*
+➜ Settings → Cellular → Data Roaming: ON ✅
+
+━━━━━━━━━━━━━━━━━━━
+⚠️ *IMPORTANT NOTES*
+━━━━━━━━━━━━━━━━━━━
+✅ Device must be Non-PTA
+✅ iPhone XS/XR or above
+✅ Data Roaming MUST be ON
+✅ All 4 devices can use same time
+✅ Activation takes 2-5 minutes per device
+✅ QR code valid for 24 hours
+
+━━━━━━━━━━━━━━━━━━━
+❓ *NEED HELP?*
+━━━━━━━━━━━━━━━━━━━
+Type "support" for assistance
+
+*Shukriya SimFly Pakistan choose karne ke liye! 🙏*`
         }
     };
 
@@ -460,21 +614,51 @@ async function sendPlanDetailsAfterVerification(chatId, planType) {
     const plan = await getPlanDetails(planType);
     if (!plan) return;
 
-    await client.sendMessage(chatId, `✅ Payment Verified Successfully!\n\n📦 Plan: ${plan.name}\n📊 Data: ${plan.data}\n💰 Price: Rs. ${plan.price}\n⏱️ Validity: ${plan.duration}\n📱 Devices: ${plan.devices}\n\n🎉 Your eSIM QR Code is ready!`);
+    // Special handling for 5GB - Admin must manually send
+    if (planType === '5GB') {
+        // Notify customer that admin will manually process
+        await client.sendMessage(chatId, `✅ *Payment Verified Successfully!*\n\n📦 *Plan:* ${plan.name} (5GB Family Pack)\n💰 *Amount:* Rs. ${plan.price}\n\n⚠️ *5GB Plan Requires Manual Setup*\n\nAdmin aapko jaldi hi eSIM details bhejega.\n\n*Koi masla nahi, aapka order safe hai!* ✅\n\n_Jaldi milte hain!_`);
 
-    await new Promise(r => setTimeout(r, 1000));
+        // Notify admin to manually send 5GB plan
+        if (ADMIN_NUMBER) {
+            try {
+                const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                await client.sendMessage(adminChat, `🚨 *5GB PLAN - MANUAL ACTION REQUIRED*\n\n👤 Customer: ${chatId}\n📦 Plan: 5GB (4 Devices)\n💰 Amount: Rs. 1500\n\n⚠️ *5GB plan needs manual sending!*\n\n➜ Send promo code manually\n➜ Use: !send-plan ${chatId} 5GB\n\n_Customer ko auto-reply nahi gaya. Manual bhejein!_`);
+            } catch (e) {}
+        }
 
-    // Send QR code placeholder (in real implementation, send actual QR image)
-    await client.sendMessage(chatId, `📱 *QR CODE FOR ${plan.name}*\n\n\`https://simfly.pk/qr/${plan.name.toLowerCase()}\`\n\n(_Scan this link or use the QR code image below_)`);
+        // Save order as pending manual completion
+        const orderId = Date.now().toString(36);
+        await addOrder({
+            chatId,
+            type: 'manual_5gb_order',
+            planType: plan.name,
+            amount: plan.price,
+            status: 'pending_manual',
+            orderId,
+            promoCode: plan.promoCode,
+            esimProvider: plan.esimProvider
+        });
 
+        log(`5GB Plan - Admin notification sent for ${chatId}`, 'admin');
+        return;
+    }
+
+    // Auto-send for 500MB and 1GB
+    // Send confirmation message
+    await client.sendMessage(chatId, `✅ *Payment Verified Successfully!*\n\nProcessing your eSIM... 🚀`);
     await new Promise(r => setTimeout(r, 1500));
 
-    // Send setup instructions
+    // Send complete setup instructions (includes promo code, app links, activation steps)
     await client.sendMessage(chatId, plan.setupInstructions);
 
-    await new Promise(r => setTimeout(r, 1000));
+    // Send QR code info separately
+    await new Promise(r => setTimeout(r, 2000));
+    await client.sendMessage(chatId, `📱 *QR CODE READY*\n\nAapko QR code email pe bhi bhej diya gaya hai!\n\n*Manual Entry Details:*\n• Provider: ${plan.esimProvider}\n• Promo: ${plan.promoCode}\n\n_Agar QR scan nahi hota toh app mein manually add karein_`);
 
-    await client.sendMessage(chatId, `💬 *Need Help?*\n\nAgar koi issue ho toh "support" likh ke bhejein ya admin se contact karein!\n\n📞 *Shukriya SimFly Pakistan choose karne ke liye! 🙏*`);
+    // Final help message
+    await new Promise(r => setTimeout(r, 1500));
+    await client.sendMessage(chatId, `💬 *Need Help?*\n\n❓ Type "support" for help\n❓ Type "guide" for activation guide\n❓ Type "problem" if facing issues\n\n_We are here to help 24/7!_`);
 
     // Save order as completed
     const orderId = Date.now().toString(36);
@@ -484,8 +668,12 @@ async function sendPlanDetailsAfterVerification(chatId, planType) {
         planType: plan.name,
         amount: plan.price,
         status: 'completed',
-        orderId
+        orderId,
+        promoCode: plan.promoCode,
+        esimProvider: plan.esimProvider
     });
+
+    log(`Plan ${plan.name} sent to ${chatId} with promo ${plan.promoCode}`, 'info');
 }
 
 // ============================================
@@ -2059,11 +2247,35 @@ async function startWhatsApp() {
                 }
             }
 
-            // ⏸️ CHECK IF BOT IS PAUSED (for non-admin users)
+                    // ⏸️ CHECK IF BOT IS PAUSED (for non-admin users)
             const isPaused = State.botPaused;
             if (isPaused && !isAdmin && !isTempAdmin) {
                 log(`Bot PAUSED - skipping auto-reply for ${chatId}`, 'info');
                 // Silently ignore - admin will manually reply
+                return;
+            }
+
+            // Check for post-purchase support commands
+            const lowerBody = body.toLowerCase();
+            if (lowerBody === 'guide' || lowerBody === 'help' || lowerBody === 'activation') {
+                const supportMsg = `📱 *eSIM ACTIVATION GUIDE*\n\n*Step 1:* Download Eskimo App\n📲 iOS: apps.apple.com/app/eskimo\n📲 Android: play.google.com/store/apps/eskimo\n\n*Step 2:* Sign up with your number\n\n*Step 3:* Add eSIM\n• Settings → Cellular → Add eSIM\n• Scan QR OR enter manually\n\n*Step 4:* Enable Data Roaming\n• Settings → Cellular → Data Roaming: ON ✅\n\n*Step 5:* Wait 2-5 min for activation\n\n❓ Type "support" for more help`;
+                await msg.reply(supportMsg);
+                await saveMessage(chatId, { body: supportMsg, fromMe: true, time: Date.now() });
+                return;
+            }
+
+            if (lowerBody === 'support' || lowerBody === 'problem' || lowerBody === 'issue') {
+                const helpMsg = `🆘 *SUPPORT REQUEST*\n\nBhai, kya problem aa rahi hai?\n\n*Common Issues:*\n1️⃣ QR scan nahi ho raha?\n2️⃣ Activation ho raha?\n3️⃣ Data roaming ON hai?\n4️⃣ Signal nahi aa rahe?\n\n*Apna issue batain:*\n• Phone model?\n• Konsa step pe problem hai?\n• Screenshot bhejein agar ho sake\n\n_Admin jaldi reply karega!_`;
+                await msg.reply(helpMsg);
+                await saveMessage(chatId, { body: helpMsg, fromMe: true, time: Date.now() });
+
+                // Notify admin about support request
+                if (ADMIN_NUMBER) {
+                    try {
+                        const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                        await client.sendMessage(adminChat, `🆘 *SUPPORT REQUEST*\n\nCustomer: ${chatId}\nIssue: ${body}\n\nReply to help!`);
+                    } catch (e) {}
+                }
                 return;
             }
 
