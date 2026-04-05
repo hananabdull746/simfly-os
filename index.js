@@ -406,7 +406,17 @@ const State = {
     logs: [],
     startTime: Date.now(),
     processedMessages: new Set(), // Deduplication
-    stats: { totalMessages: 0, totalOrders: 0 }
+    stats: { totalMessages: 0, totalOrders: 0 },
+    groq: {
+        enabled: isGroqEnabled(),
+        status: 'active', // active, cooldown, disabled
+        failureCount: 0,
+        lastCall: null,
+        lastError: null
+    },
+    botPaused: false, // Admin pause/resume control
+    pausedBy: null, // Which admin paused
+    pauseReason: null // Why paused
 };
 
 // ============================================
@@ -468,9 +478,12 @@ const ADMIN_COMMANDS = {
     // 🤖 BOT CONTROLS
     '!status': { desc: 'Show bot status', usage: '!status', category: 'bot' },
     '!restart': { desc: 'Restart the bot', usage: '!restart', category: 'bot' },
-    '!stop': { desc: 'Stop the bot', usage: '!stop', category: 'bot' },
+    '!stop': { desc: 'PAUSE bot (admin replies)', usage: '!stop [reason]', category: 'bot' },
+    '!start': { desc: 'RESUME bot (auto-reply on)', usage: '!start', category: 'bot' },
     '!start-bot': { desc: 'Start the bot', usage: '!start-bot', category: 'bot' },
     '!reload': { desc: 'Reload configuration', usage: '!reload', category: 'bot' },
+    '!pause': { desc: 'Pause auto-replies', usage: '!pause [reason]', category: 'bot' },
+    '!resume': { desc: 'Resume auto-replies', usage: '!resume', category: 'bot' },
     '!maintenance': { desc: 'Toggle maintenance mode', usage: '!maintenance [on/off]', category: 'bot' },
     '!logs': { desc: 'Show recent logs', usage: '!logs [count]', category: 'bot' },
     '!clear-logs': { desc: 'Clear logs', usage: '!clear-logs', category: 'bot' },
@@ -878,6 +891,23 @@ async function handleAdminCommand(msg, chatId, body) {
         return `🚀 *SimFly Pakistan Bot*\n\nVersion: 8.1 Master Bot\nFeatures:\n• Firebase + Groq AI\n• Payment Verification\n• 100+ Admin Commands\n• Real-time Dashboard\n\nMade with ❤️ for SimFly Pakistan`;
     }
 
+    // ⏸️ PAUSE / RESUME BOT
+    if (command === '!stop' || command === '!pause') {
+        State.botPaused = true;
+        State.pausedBy = chatId;
+        State.pauseReason = args || 'Paused by admin';
+        log(`Bot PAUSED by ${chatId}. Reason: ${State.pauseReason}`, 'admin');
+        return `⏸️ *BOT PAUSED*\n\n👤 By: Admin\n📝 Reason: ${State.pauseReason}\n\n✅ Ab admin manually reply karega\n🤖 Auto-replies OFF hain\n\n▶️ Wapas start karne ke liye: !start`;
+    }
+
+    if (command === '!start' || command === '!resume') {
+        State.botPaused = false;
+        State.pausedBy = null;
+        State.pauseReason = null;
+        log(`Bot RESUMED by ${chatId}`, 'admin');
+        return `▶️ *BOT RESUMED*\n\n✅ Auto-replies ON hain\n🤖 Bot ab automatically reply karega\n\n⏸️ Pause karne ke liye: !stop`;
+    }
+
     return null;
 }
 
@@ -1024,37 +1054,199 @@ function findFAQResponse(userMessage) {
 }
 
 // ============================================
-// GROQ AI RESPONSE GENERATION
+// 🛡️ ANTI-BAN MEASURES
 // ============================================
-async function getGroqResponse(userMessage, chatId, history) {
-    try {
-        const messages = [
-            { role: 'system', content: SYSTEM_PROMPT },
-            ...history.slice(-5).map(h => ({
-                role: h.fromMe ? 'assistant' : 'user',
-                content: h.body
-            })),
-            { role: 'user', content: userMessage }
-        ];
 
-        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: GROQ_MODEL,
-            messages: messages,
-            max_tokens: 500,
-            temperature: 0.7
-        }, {
-            headers: {
-                'Authorization': `Bearer ${GROQ_API_KEY}`,
-                'Content-Type': 'application/json'
-            },
-            timeout: 10000
+// Random delay to mimic human typing/response time
+function getRandomDelay() {
+    // Random delay between 1-4 seconds for realism
+    return Math.floor(Math.random() * 3000) + 1000;
+}
+
+// Anti-ban message rate limiting
+const messageRateLimiter = new Map();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const MAX_MESSAGES_PER_WINDOW = 15; // Max 15 messages per minute per chat
+
+function checkRateLimit(chatId) {
+    const now = Date.now();
+    const userData = messageRateLimiter.get(chatId) || { count: 0, resetTime: now + RATE_LIMIT_WINDOW };
+
+    if (now > userData.resetTime) {
+        // Reset window
+        userData.count = 1;
+        userData.resetTime = now + RATE_LIMIT_WINDOW;
+    } else {
+        userData.count++;
+    }
+
+    messageRateLimiter.set(chatId, userData);
+
+    // Clean up old entries every 100 entries
+    if (messageRateLimiter.size > 100) {
+        const cutoff = now - RATE_LIMIT_WINDOW * 2;
+        for (const [id, data] of messageRateLimiter) {
+            if (data.resetTime < cutoff) messageRateLimiter.delete(id);
+        }
+    }
+
+    return userData.count <= MAX_MESSAGES_PER_WINDOW;
+}
+
+// ============================================
+// 📚 CHAT CONTEXT LOADING
+// ============================================
+
+// Get full chat context including recent messages
+async function getChatContext(chatId, currentMsg) {
+    try {
+        // Get history from database
+        const dbHistory = await getHistory(chatId);
+
+        // Get WhatsApp chat messages (last 50)
+        let waMessages = [];
+        try {
+            const chat = await currentMsg.getChat();
+            if (chat) {
+                const messages = await chat.fetchMessages({ limit: 50 });
+                waMessages = messages.map(m => ({
+                    body: m.body,
+                    fromMe: m.fromMe,
+                    timestamp: m.timestamp * 1000, // Convert to ms
+                    type: m.type
+                }));
+            }
+        } catch (e) {
+            log('Error fetching WhatsApp chat history: ' + e.message, 'error');
+        }
+
+        // Combine and sort by time
+        const combined = [...dbHistory, ...waMessages].sort((a, b) => (a.time || a.timestamp) - (b.time || b.timestamp));
+
+        // Remove duplicates (same body + timestamp)
+        const seen = new Set();
+        const unique = combined.filter(m => {
+            const key = `${m.body}_${m.time || m.timestamp}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
         });
 
-        return response.data.choices[0].message.content;
+        // Return last 20 unique messages
+        return unique.slice(-20);
     } catch (e) {
-        log('Groq API error: ' + e.message, 'error');
-        return null;
+        log('Error getting chat context: ' + e.message, 'error');
+        return [];
     }
+}
+
+// ============================================
+// GROQ AI RESPONSE GENERATION
+// ============================================
+// Track API failures for circuit breaker
+const GROQ_COOLDOWN_MS = 60000; // 1 minute cooldown after 3 failures
+const GROQ_MAX_FAILURES = 3;
+
+async function getGroqResponse(userMessage, chatId, history) {
+    // Circuit breaker check
+    if (State.groq.failureCount >= GROQ_MAX_FAILURES) {
+        const timeSinceLastFailure = Date.now() - (State.groq.lastCall || 0);
+        if (timeSinceLastFailure < GROQ_COOLDOWN_MS) {
+            log(`Groq in cooldown (${Math.ceil((GROQ_COOLDOWN_MS - timeSinceLastFailure)/1000)}s)`, 'warn');
+            State.groq.status = 'cooldown';
+            return null;
+        }
+        // Reset after cooldown
+        State.groq.failureCount = 0;
+        State.groq.status = 'active';
+    }
+
+    // Retry logic
+    const maxRetries = 2;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const messages = [
+                { role: 'system', content: SYSTEM_PROMPT },
+                ...history.slice(-5).map(h => ({
+                    role: h.fromMe ? 'assistant' : 'user',
+                    content: h.body
+                })),
+                { role: 'user', content: userMessage }
+            ];
+
+            const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model: GROQ_MODEL,
+                messages: messages,
+                max_tokens: 500,
+                temperature: 0.7
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${GROQ_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000 // Increased timeout
+            });
+
+            // Success - reset failure count
+            State.groq.lastCall = Date.now();
+            if (State.groq.failureCount > 0) {
+                State.groq.failureCount = 0;
+                State.groq.status = 'active';
+                log('Groq API recovered', 'info');
+            }
+
+            return response.data.choices[0].message.content;
+
+        } catch (e) {
+            lastError = e;
+            const statusCode = e.response?.status;
+            const errorData = e.response?.data;
+
+            // Log detailed error
+            log(`Groq attempt ${attempt + 1}/${maxRetries + 1} failed: ${statusCode} - ${errorData?.error?.message || e.message}`, 'error');
+
+            // Handle specific errors
+            if (statusCode === 401) {
+                log('Groq API key invalid - disabling AI', 'error');
+                return null; // Don't retry auth errors
+            }
+
+            if (statusCode === 429) {
+                // Rate limit - wait and retry
+                const waitTime = (attempt + 1) * 2000; // 2s, 4s
+                log(`Rate limited, waiting ${waitTime}ms...`, 'warn');
+                await new Promise(r => setTimeout(r, waitTime));
+                continue;
+            }
+
+            if (statusCode >= 500) {
+                // Server error - retry
+                await new Promise(r => setTimeout(r, 1000));
+                continue;
+            }
+
+            // Network/timeout errors - retry
+            if (e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT' || !e.response) {
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+            }
+
+            // Other errors - don't retry
+            break;
+        }
+    }
+
+    // All retries exhausted
+    State.groq.failureCount++;
+    State.groq.lastCall = Date.now();
+    State.groq.lastError = lastError?.message || 'Unknown error';
+    if (State.groq.failureCount >= GROQ_MAX_FAILURES) {
+        State.groq.status = 'cooldown';
+    }
+    log(`Groq failed ${State.groq.failureCount} times, switching to templates`, 'error');
+    return null;
 }
 
 // ============================================
@@ -1118,6 +1310,131 @@ async function getAIResponse(userMessage, chatId) {
     }
 
     return `Sorry bhai, main abhi samajh nahi paya. 🤔 Kya aap repeat karein?`;
+}
+
+// ============================================
+// 🤖 AI RESPONSE WITH FULL CONTEXT
+// ============================================
+async function getAIResponseWithContext(userMessage, chatId, chatContext) {
+    const msg = userMessage.toLowerCase();
+
+    // 🛡️ ANTI-BAN: Check rate limit first
+    if (!checkRateLimit(chatId)) {
+        log(`Rate limit hit for ${chatId}, slowing down`, 'warn');
+        // Add extra delay for rate-limited chats
+        await new Promise(r => setTimeout(r, 5000));
+    }
+
+    // Check for exact keywords first (faster responses)
+    const keywordResponse = findKeywordResponse(userMessage);
+    if (keywordResponse) return keywordResponse;
+
+    // Check FAQ responses
+    const faqResponse = findFAQResponse(userMessage);
+    if (faqResponse) return faqResponse;
+
+    // Build conversation context for AI
+    let conversationHistory = [];
+    if (chatContext && chatContext.length > 0) {
+        // Convert to AI format
+        conversationHistory = chatContext.map(m => ({
+            role: m.fromMe ? 'assistant' : 'user',
+            content: m.body
+        }));
+    }
+
+    // Try Groq if enabled
+    if (BOT_CONFIG.useAI && isGroqEnabled()) {
+        const groqResponse = await getGroqResponseWithContext(userMessage, chatId, conversationHistory);
+        if (groqResponse) return groqResponse;
+    }
+
+    // Fallback to templates
+    if (BOT_CONFIG.useTemplates) {
+        return await getTemplateResponse(userMessage, chatId);
+    }
+
+    return `Bhai samajh nahi aaya. 😅 Main SimFly Pakistan ke eSIM plans ke bare mein info de sakta hoon.\n\nKya aap:\n📱 Plans dekhna chahte hain?\n💳 Payment methods janna chahte hain?\n🛒 Order karna chahte hain?`;
+}
+
+// Enhanced Groq response with full context
+async function getGroqResponseWithContext(userMessage, chatId, conversationHistory) {
+    // Circuit breaker check
+    if (State.groq.failureCount >= GROQ_MAX_FAILURES) {
+        const timeSinceLastFailure = Date.now() - (State.groq.lastCall || 0);
+        if (timeSinceLastFailure < GROQ_COOLDOWN_MS) {
+            log(`Groq in cooldown (${Math.ceil((GROQ_COOLDOWN_MS - timeSinceLastFailure)/1000)}s)`, 'warn');
+            State.groq.status = 'cooldown';
+            return null;
+        }
+        State.groq.failureCount = 0;
+        State.groq.status = 'active';
+    }
+
+    const maxRetries = 2;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            // Build messages with full conversation context (last 10 messages)
+            const messages = [
+                { role: 'system', content: SYSTEM_PROMPT },
+                ...conversationHistory.slice(-10),
+                { role: 'user', content: userMessage }
+            ];
+
+            const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model: GROQ_MODEL,
+                messages: messages,
+                max_tokens: 600,
+                temperature: 0.8,
+                presence_penalty: 0.1,
+                frequency_penalty: 0.1
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${GROQ_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            });
+
+            // Success - reset failure count
+            State.groq.lastCall = Date.now();
+            if (State.groq.failureCount > 0) {
+                State.groq.failureCount = 0;
+                State.groq.status = 'active';
+                log('Groq API recovered', 'info');
+            }
+
+            return response.data.choices[0].message.content;
+
+        } catch (e) {
+            lastError = e;
+            const statusCode = e.response?.status;
+
+            log(`Groq attempt ${attempt + 1}/${maxRetries + 1} failed: ${statusCode || e.message}`, 'error');
+
+            if (statusCode === 401) return null;
+            if (statusCode === 429) {
+                await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+                continue;
+            }
+            if (e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT') {
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+            }
+            break;
+        }
+    }
+
+    // All retries exhausted
+    State.groq.failureCount++;
+    State.groq.lastCall = Date.now();
+    State.groq.lastError = lastError?.message || 'Unknown error';
+    if (State.groq.failureCount >= GROQ_MAX_FAILURES) {
+        State.groq.status = 'cooldown';
+    }
+    return null;
 }
 
 // ============================================
@@ -1324,17 +1641,37 @@ async function startWhatsApp() {
                 }
             }
 
+            // ⏸️ CHECK IF BOT IS PAUSED (for non-admin users)
+            const isPaused = State.botPaused;
+            if (isPaused && !isAdmin && !isTempAdmin) {
+                log(`Bot PAUSED - skipping auto-reply for ${chatId}`, 'info');
+                // Silently ignore - admin will manually reply
+                return;
+            }
+
             // Regular message handling
             try {
                 const chat = await msg.getChat();
 
-                // Show typing indicator
-                if (AdminState.typingIndicator && BOT_CONFIG.showTyping) {
-                    await chat.sendStateTyping();
+                // 📚 LOAD FULL CHAT CONTEXT (recent messages)
+                const chatContext = await getChatContext(chatId, msg);
+
+                // 🛡️ ANTI-BAN: Random delay before response
+                const randomDelay = getRandomDelay();
+                if (randomDelay > 0) {
+                    await new Promise(r => setTimeout(r, randomDelay));
                 }
 
-                // Get AI response
-                const reply = await getAIResponse(body, chatId);
+                // Show typing indicator (human-like behavior)
+                if (AdminState.typingIndicator && BOT_CONFIG.showTyping) {
+                    await chat.sendStateTyping();
+                    // Human-like typing time based on message length
+                    const typingTime = Math.min(body.length * 30, 3000);
+                    await new Promise(r => setTimeout(r, typingTime));
+                }
+
+                // Get AI response with full context
+                const reply = await getAIResponseWithContext(body, chatId, chatContext);
 
                 // Wait for response delay
                 await new Promise(r => setTimeout(r, BOT_CONFIG.responseDelay));
@@ -1395,6 +1732,13 @@ app.get('/api/status', async (req, res) => {
         const userCount = await getUserCount();
         const orders = await getOrders('all');
 
+        // Calculate cooldown remaining
+        let cooldownRemaining = 0;
+        if (State.groq.status === 'cooldown') {
+            const elapsed = Date.now() - (State.groq.lastCall || 0);
+            cooldownRemaining = Math.max(0, GROQ_COOLDOWN_MS - elapsed);
+        }
+
         res.json({
             status: State.status,
             ready: State.isReady,
@@ -1405,7 +1749,16 @@ app.get('/api/status', async (req, res) => {
             logs: State.logs.slice(0, 15),
             uptime: Date.now() - State.startTime,
             firebase: isFirebaseEnabled(),
-            groq: isGroqEnabled()
+            groq: {
+                enabled: isGroqEnabled(),
+                status: State.groq.status,
+                failures: State.groq.failureCount,
+                cooldownRemaining: cooldownRemaining,
+                lastError: State.groq.lastError
+            },
+            botPaused: State.botPaused,
+            pausedBy: State.pausedBy,
+            pauseReason: State.pauseReason
         });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1510,7 +1863,7 @@ app.get('/', (req, res) => {
             <div style="margin-top: 10px;">
                 <span class="badge badge-blue">v8.0 Master Bot</span>
                 <span class="badge ${isFirebaseEnabled() ? 'badge-green' : 'badge-yellow'}">${isFirebaseEnabled() ? 'Firebase' : 'Local DB'}</span>
-                ${isGroqEnabled() ? '<span class="badge badge-green">Groq AI</span>' : ''}
+                <span id="groqStatus" class="badge badge-yellow">🤖 AI: Checking...</span>
             </div>
         </div>
 
@@ -1625,6 +1978,39 @@ app.get('/', (req, res) => {
             document.getElementById('msgCount').textContent = data.stats?.totalMessages || 0;
             document.getElementById('orderCount').textContent = data.stats?.totalOrders || 0;
             document.getElementById('userCount').textContent = data.users || 0;
+
+            // Update Groq status indicator
+            if (data.groq) {
+                const groqStatusEl = document.getElementById('groqStatus');
+                if (groqStatusEl) {
+                    if (!data.groq.enabled) {
+                        groqStatusEl.textContent = '🤖 AI: OFF';
+                        groqStatusEl.className = 'badge badge-red';
+                    } else if (data.groq.status === 'cooldown') {
+                        const mins = Math.ceil(data.groq.cooldownRemaining / 60000);
+                        groqStatusEl.textContent = `⏳ AI: Cooldown (${mins}m)`;
+                        groqStatusEl.className = 'badge badge-yellow';
+                    } else if (data.groq.failures > 0) {
+                        groqStatusEl.textContent = `⚠️ AI: Warning (${data.groq.failures})`;
+                        groqStatusEl.className = 'badge badge-yellow';
+                    } else {
+                        groqStatusEl.textContent = '🟢 AI: Active';
+                        groqStatusEl.className = 'badge badge-green';
+                    }
+                }
+            }
+
+            // Update Pause status
+            const pauseStatusEl = document.getElementById('pauseStatus');
+            if (pauseStatusEl) {
+                if (data.botPaused) {
+                    pauseStatusEl.textContent = '⏸️ PAUSED';
+                    pauseStatusEl.className = 'badge badge-red';
+                    pauseStatusEl.style.display = 'inline-block';
+                } else {
+                    pauseStatusEl.style.display = 'none';
+                }
+            }
 
             if (data.logs?.length > 0) {
                 els.logsBox.innerHTML = data.logs.map(l =>
