@@ -2928,6 +2928,67 @@ async function getGroqResponseWithContext(userMessage, chatId, conversationHisto
     return null;
 }
 
+// ═══════════════════════════════════════════════════════
+// 📊 ANALYZE ALL USER CHATS ON STARTUP
+// ═══════════════════════════════════════════════════════
+async function analyzeAllUserChats() {
+    try {
+        log('Analyzing all user chats on startup...', 'info');
+
+        // Get all users
+        const users = await getAllUsers();
+        const summaries = [];
+
+        for (const user of users) {
+            const chatId = user.chatId;
+            const history = await getHistory(chatId);
+
+            if (history.length > 0) {
+                // Analyze user's conversation
+                const messages = history.map(m => m.body);
+                const allText = messages.join(' ').toLowerCase();
+
+                // Determine user status
+                let status = 'browsing';
+                if (allText.includes('payment') || allText.includes('screenshot')) status = 'payment_pending';
+                if (allText.includes('buy') || allText.includes('order')) status = 'interested';
+                if (allText.includes('device') || allText.includes('iphone')) status = 'checking_device';
+
+                // Check for errors/problems
+                const hasErrors = /error|problem|issue|masla|nahi chal/.test(allText);
+
+                // Get preferred plan
+                let preferredPlan = 'none';
+                if (allText.includes('5gb')) preferredPlan = '5GB';
+                else if (allText.includes('1gb')) preferredPlan = '1GB';
+                else if (allText.includes('500mb')) preferredPlan = '500MB';
+
+                summaries.push({
+                    chatId,
+                    messageCount: history.length,
+                    status,
+                    preferredPlan,
+                    hasErrors,
+                    lastActive: new Date(history[history.length - 1].time).toLocaleDateString()
+                });
+            }
+        }
+
+        // Send summary to admin
+        if (ADMIN_NUMBER && summaries.length > 0) {
+            const summaryText = summaries.slice(0, 20).map(s =>
+                `👤 ${s.chatId}\n   Status: ${s.status}${s.hasErrors ? ' ⚠️ ERRORS' : ''}\n   Plan: ${s.preferredPlan}\n   Msgs: ${s.messageCount}`
+            ).join('\n\n');
+
+            const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+            await client.sendMessage(adminChat, `📊 *USER CHAT ANALYSIS*\n\n${summaryText}\n\n_Total users: ${summaries.length}_`);
+            log(`Sent chat analysis to admin: ${summaries.length} users`, 'admin');
+        }
+    } catch (e) {
+        log('Error analyzing user chats: ' + e.message, 'error');
+    }
+}
+
 // ============================================
 // WHATSAPP CLIENT
 // ============================================
@@ -2997,6 +3058,11 @@ async function startWhatsApp() {
 
             // Initialize complete automation system
             initializeAutomation();
+
+            // Analyze all user chats on startup and create summaries
+            setTimeout(async () => {
+                await analyzeAllUserChats();
+            }, 10000); // Wait 10 seconds after startup
         });
 
         client.on('disconnected', (reason) => {
@@ -3049,20 +3115,8 @@ async function startWhatsApp() {
             }
 
             // Check for admin commands
-            // Method 1: Check by ADMIN_NUMBER
-            // Method 2: First message with "!admin YOUR_ADMIN_NUMBER" to activate
-            const isAdmin = AdminState.isAdminChat(chatId);
-
-            // Allow admin activation with secret key
-            if (body.startsWith('!admin ') && !isAdmin) {
-                const providedNumber = body.split(' ')[1];
-                if (providedNumber && providedNumber.replace(/\D/g, '') === ADMIN_NUMBER.replace(/\D/g, '')) {
-                    await msg.reply('✅ Admin mode activated for this session!\n\nYou can now use all admin commands.\nType !admin-help to see available commands.');
-                    AdminState.tempAdminChat = chatId;
-                    return;
-                }
-            }
-
+            // Admin has full access automatically - no need for !admin command
+            const isAdmin = AdminState.isAdminChat(chatId) || chatId.includes(ADMIN_NUMBER.replace(/\D/g, ''));
             const isTempAdmin = AdminState.tempAdminChat === chatId;
 
             // Check for admin reply commands (reply to verification messages)
@@ -3244,6 +3298,18 @@ async function startWhatsApp() {
                 } catch (e) {}
             }
 
+            // ERROR DETECTION for returning customers
+            const errorKeywords = ['error', 'problem', 'issue', 'masla', 'nahi chal', 'not working', 'fail', 'stuck', 'help'];
+            const hasError = errorKeywords.some(k => body.toLowerCase().includes(k));
+
+            if (hasError && !isNew && ADMIN_NUMBER) {
+                // Returning customer has error - notify admin immediately
+                try {
+                    const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                    await client.sendMessage(adminChat, `🆘 *RETURNING CUSTOMER ERROR*\n\nCustomer: ${chatId}\nIssue: ${body.slice(0, 150)}\n\n_This customer needs immediate help!_`);
+                } catch (e) {}
+            }
+
             // Feature 19: Track Abandoned Cart
             if (profile.purchaseStage === PURCHASE_STAGES.PLAN_VIEW && !profile.abandonedCartTime) {
                 profile.abandonedCartTime = Date.now();
@@ -3316,16 +3382,41 @@ Bhai, screenshot mil gaya! Main analyze kar raha hoon... 🤔`);
                 return;
             }
 
-            // 👤 NEW USER: Set session but let AI handle conversation naturally
+            // 👤 NEW USER FLOW - Single Message
             const isNew = await isNewUser(chatId);
             const userSession = getUserSession(chatId);
 
-            // Auto-set session info based on message content (for AI context)
             if (isNew && userSession.state === 'new') {
-                setUserSession(chatId, { state: 'active', step: 1, firstMessage: body });
+                // First message - just ask for device (SINGLE MESSAGE)
+                setUserSession(chatId, { state: 'awaiting_device', step: 1, firstMessage: body });
+
+                const welcomeMsg = `Assalam-o-Alaikum! 👋\n\nSimFly Pakistan mein khush amdeed.\n\nAapka device kaunsa hai? (Jaise: iPhone 14, Samsung S23, etc.)`;
+
+                await msg.reply(welcomeMsg);
+                await saveMessage(chatId, { body: welcomeMsg, fromMe: true, time: Date.now() });
+                return; // Don't send any other messages
             }
 
-            // Extract device info if mentioned (for AI context, not forced flow)
+            if (userSession.state === 'awaiting_device') {
+                // User replied with device name
+                const deviceCheck = checkDeviceCompatibility(body);
+                setUserSession(chatId, { state: 'active', step: 2, device: deviceCheck.matchedDevice, deviceCompatible: deviceCheck.compatible });
+
+                let deviceResponse = '';
+                if (deviceCheck.compatible === true) {
+                    deviceResponse = `✅ ${deviceCheck.matchedDevice} mein eSIM work karegi!\n\nAgar aapka device eSIM supported hai toh hamare plans kaam karenge.\n\n⚡ 500MB - Rs. 130\n🔥 1GB - Rs. 400\n💎 5GB - Rs. 1500\n\nKaunsa plan dekhna hai?`;
+                } else if (deviceCheck.compatible === false) {
+                    deviceResponse = `❌ ${deviceCheck.matchedDevice} mein eSIM work nahi karegi.\n\n${deviceCheck.note}\n\nKoi aur device hai aapke paas?`;
+                } else {
+                    deviceResponse = `🤔 Device check kar leta hoon...\n\nAgar aapka device eSIM supported hai toh hamare plans kaam karenge.\n\n⚡ 500MB - Rs. 130\n🔥 1GB - Rs. 400\n💎 5GB - Rs. 1500`;
+                }
+
+                await msg.reply(deviceResponse);
+                await saveMessage(chatId, { body: deviceResponse, fromMe: true, time: Date.now() });
+                return;
+            }
+
+            // Extract device info if mentioned
             const deviceCheck = checkDeviceCompatibility(body);
             if (deviceCheck.compatible !== null && userSession.device !== deviceCheck.matchedDevice) {
                 setUserSession(chatId, { ...userSession, device: deviceCheck.matchedDevice, deviceCompatible: deviceCheck.compatible });
