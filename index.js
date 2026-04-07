@@ -2063,6 +2063,261 @@ async function getPendingOrders() {
 }
 
 // ============================================
+// 🏢 BUSINESS AUTOMATION SYSTEM v10.0
+// ============================================
+const BusinessAutomation = {
+    // Conversion tracking
+    conversions: {
+        total: 0,
+        today: 0,
+        bySource: new Map(), // Track which ads/sources convert
+        byPlan: new Map()    // Track which plans sell most
+    },
+
+    // Customer journey stages
+    customerStages: new Map(), // chatId -> {stage, startedAt, lastActivity}
+
+    // Abandoned cart recovery
+    abandonedCarts: new Map(), // chatId -> {planType, price, timestamp}
+
+    // Smart follow-ups
+    followUpQueue: [], // Array of follow-up tasks
+
+    // Daily stats reset
+    lastResetDate: new Date().toDateString(),
+
+    // Auto-responses for common queries (anti-spam)
+    autoResponseCache: new Map(), // chatId -> {lastResponseTime, responseCount}
+
+    // Human handoff triggers
+    handoffTriggers: ['angry', 'frustrated', 'refund', 'complaint', 'lawyer', 'police'],
+
+    // Initialize business automation
+    init() {
+        // Reset daily stats at midnight
+        setInterval(() => {
+            const today = new Date().toDateString();
+            if (today !== this.lastResetDate) {
+                this.conversions.today = 0;
+                this.lastResetDate = today;
+                log('📊 Daily stats reset', 'info');
+            }
+        }, 60000); // Check every minute
+
+        // Process follow-up queue every 5 minutes
+        setInterval(() => this.processFollowUps(), 5 * 60 * 1000);
+
+        log('🏢 Business Automation System initialized', 'info');
+    },
+
+    // Track customer stage in funnel
+    trackStage(chatId, stage) {
+        const existing = this.customerStages.get(chatId) || {};
+        this.customerStages.set(chatId, {
+            stage,
+            startedAt: existing.startedAt || Date.now(),
+            lastActivity: Date.now(),
+            previousStage: existing.stage
+        });
+    },
+
+    // Get customer stage
+    getStage(chatId) {
+        return this.customerStages.get(chatId)?.stage || 'new';
+    },
+
+    // Track abandoned cart
+    trackAbandonedCart(chatId, planType, price) {
+        this.abandonedCarts.set(chatId, {
+            planType,
+            price,
+            timestamp: Date.now()
+        });
+
+        // Schedule recovery message in 30 minutes
+        setTimeout(() => {
+            this.sendCartRecovery(chatId, planType, price);
+        }, 30 * 60 * 1000);
+    },
+
+    // Send cart recovery message
+    async sendCartRecovery(chatId, planType, price) {
+        // Check if still abandoned (no purchase since)
+        const cart = this.abandonedCarts.get(chatId);
+        if (!cart) return; // Already purchased
+
+        // Check if customer has since purchased
+        const stage = this.getStage(chatId);
+        if (stage === 'purchased' || stage === 'completed') {
+            this.abandonedCarts.delete(chatId);
+            return;
+        }
+
+        const messages = [
+            `Bhai, aapne ${planType} plan dekha tha! ❤️\n\nKoi confusion ho toh pooch sakte hain! Main yahan houn help ke liye. 👍`,
+            `Bhai, Rs. ${price} ka ${planType} plan abhi bhi available hai! ❤️\n\nAgar aap ready hain toh payment karke screenshot bhejein.\n\nYa koi sawal ho toh pooch lein! 🤔`,
+            `Bhai, limited slots hain! ❤️ ${planType} plan ke liye jaldi karein.\n\nKoi masla ho toh batain! Main solve karwata houn! 💪`
+        ];
+
+        const message = messages[Math.floor(Math.random() * messages.length)];
+
+        try {
+            if (client) {
+                await client.sendMessage(chatId, message);
+                this.trackStage(chatId, 'recovery_sent');
+                log(`Cart recovery sent to ${chatId}`, 'info');
+            }
+        } catch (e) {
+            log(`Cart recovery failed: ${e.message}`, 'error');
+        }
+    },
+
+    // Track conversion
+    trackConversion(chatId, planType, amount, source = 'organic') {
+        this.conversions.total++;
+        this.conversions.today++;
+
+        // Track by source
+        const currentSource = this.conversions.bySource.get(source) || 0;
+        this.conversions.bySource.set(source, currentSource + 1);
+
+        // Track by plan
+        const currentPlan = this.conversions.byPlan.get(planType) || 0;
+        this.conversions.byPlan.set(planType, currentPlan + 1);
+
+        // Remove from abandoned carts
+        this.abandonedCarts.delete(chatId);
+
+        // Update stage
+        this.trackStage(chatId, 'purchased');
+
+        log(`💰 Conversion: ${planType} - Rs. ${amount} from ${source}`, 'business');
+    },
+
+    // Check for spam/abuse (rate limiting per user)
+    checkRateLimit(chatId) {
+        const now = Date.now();
+        const userData = this.autoResponseCache.get(chatId) || { lastResponseTime: 0, responseCount: 0 };
+
+        // Reset count if last response was more than 1 minute ago
+        if (now - userData.lastResponseTime > 60000) {
+            userData.responseCount = 0;
+        }
+
+        userData.responseCount++;
+        userData.lastResponseTime = now;
+        this.autoResponseCache.set(chatId, userData);
+
+        // If more than 10 messages in 1 minute, slow down
+        if (userData.responseCount > 10) {
+            return false; // Rate limited
+        }
+        return true; // OK
+    },
+
+    // Check if should handoff to human
+    shouldHandoffToHuman(chatId, message, profile) {
+        const lowerMsg = message.toLowerCase();
+
+        // Check trigger words
+        for (const trigger of this.handoffTriggers) {
+            if (lowerMsg.includes(trigger)) {
+                return {
+                    shouldHandoff: true,
+                    reason: `Trigger word detected: ${trigger}`,
+                    urgency: 'high'
+                };
+            }
+        }
+
+        // Check for repeated frustration
+        if (profile.mood === 'frustrated' && profile.messageCount > 5) {
+            return {
+                shouldHandoff: true,
+                reason: 'Repeated frustration detected',
+                urgency: 'medium'
+            };
+        }
+
+        // Check for complex issues (multiple back-and-forths)
+        const stage = this.getStage(chatId);
+        if (stage === 'issue_reported' && profile.messageCount > 8) {
+            return {
+                shouldHandoff: true,
+                reason: 'Complex issue requiring human attention',
+                urgency: 'medium'
+            };
+        }
+
+        return { shouldHandoff: false };
+    },
+
+    // Process follow-up queue
+    async processFollowUps() {
+        const now = Date.now();
+        const toProcess = this.followUpQueue.filter(item => item.dueTime <= now);
+
+        for (const item of toProcess) {
+            try {
+                if (client) {
+                    await client.sendMessage(item.chatId, item.message);
+                    log(`Follow-up sent to ${item.chatId}`, 'info');
+                }
+            } catch (e) {
+                log(`Follow-up failed: ${e.message}`, 'error');
+            }
+        }
+
+        // Remove processed items
+        this.followUpQueue = this.followUpQueue.filter(item => item.dueTime > now);
+    },
+
+    // Schedule follow-up
+    scheduleFollowUp(chatId, message, delayMinutes) {
+        this.followUpQueue.push({
+            chatId,
+            message,
+            dueTime: Date.now() + (delayMinutes * 60 * 1000)
+        });
+    },
+
+    // Get business stats
+    getStats() {
+        return {
+            totalConversions: this.conversions.total,
+            todayConversions: this.conversions.today,
+            bySource: Object.fromEntries(this.conversions.bySource),
+            byPlan: Object.fromEntries(this.conversions.byPlan),
+            activeCustomers: this.customerStages.size,
+            abandonedCarts: this.abandonedCarts.size,
+            followUpQueue: this.followUpQueue.length
+        };
+    },
+
+    // Smart delay calculation (human-like response time)
+    calculateResponseDelay(messageLength, hasMedia) {
+        // Base delay: 1-3 seconds
+        let delay = 1000 + Math.random() * 2000;
+
+        // Add delay based on message length (typing time)
+        if (messageLength > 100) {
+            delay += messageLength * 20; // 20ms per character
+        }
+
+        // Add delay if media processing needed
+        if (hasMedia) {
+            delay += 3000 + Math.random() * 2000; // 3-5 seconds for "analysis"
+        }
+
+        // Cap at 10 seconds max
+        return Math.min(delay, 10000);
+    }
+};
+
+// Initialize business automation
+BusinessAutomation.init();
+
+// ============================================
 // PAYMENT VERIFICATION SYSTEM
 // ============================================
 const pendingPayments = new Map();
@@ -2647,20 +2902,34 @@ const ADMIN_COMMANDS = {
 
 // Admin state
 const AdminState = {
+    // Auto-detection properties
+    registeredAdmins: new Set(),
+    adminChats: new Set(),
+    tempAdminChat: null,
+    firstTimeAdmin: true,
+
+    // Admin detection function (enhanced)
     isAdminChat: (chatId) => {
         // Skip if ADMIN_NUMBER is placeholder or empty
         if (!ADMIN_NUMBER ||
             ADMIN_NUMBER.includes('YOUR_') ||
             ADMIN_NUMBER.length < 10) {
-            console.log('Admin check: ADMIN_NUMBER not configured properly');
             return false;
         }
+
+        // Normalize numbers for comparison
         const cleanAdmin = ADMIN_NUMBER.replace(/\D/g, '');
         const cleanChat = chatId.replace(/\D/g, '').replace(/@.+$/, '');
-        const isAdmin = cleanAdmin === cleanChat;
-        if (isAdmin) console.log('Admin command detected from:', chatId);
+
+        // Check if chat contains admin number
+        const isAdmin = cleanAdmin === cleanChat ||
+                       cleanChat.includes(cleanAdmin) ||
+                       cleanAdmin.includes(cleanChat);
+
         return isAdmin;
     },
+
+    // Settings
     maintenanceMode: false,
     autoReply: true,
     typingIndicator: true,
@@ -4380,19 +4649,62 @@ async function startWhatsApp() {
                 return;
             }
 
-            // Check for admin commands
-            // Admin has full access automatically - no need for !admin command
-            const isAdmin = AdminState.isAdminChat(chatId) || chatId.includes(ADMIN_NUMBER.replace(/\D/g, ''));
+            // ════════════════════════════════════════════════════════════════════════════
+            // 👑 AUTO-ADMIN DETECTION SYSTEM v3.0
+            // Automatically detects admin by phone number - NO !admin command needed!
+            // ════════════════════════════════════════════════════════════════════════════
+
+            // Normalize chat ID and admin number for comparison
+            const chatIdNumber = chatId.replace(/[^0-9]/g, '');
+            const adminNumberClean = ADMIN_NUMBER ? ADMIN_NUMBER.replace(/[^0-9]/g, '') : '';
+
+            // Check if message is from admin (multiple methods)
+            const isFromAdmin = (
+                (adminNumberClean && chatIdNumber.includes(adminNumberClean)) ||
+                (adminNumberClean && adminNumberClean.includes(chatIdNumber)) ||
+                AdminState.isAdminChat(chatId) ||
+                AdminState.tempAdminChat === chatId
+            );
+
+            // Auto-register admin on first message
+            if (isFromAdmin && !AdminState.registeredAdmins.has(chatId)) {
+                AdminState.registeredAdmins.add(chatId);
+                AdminState.adminChats.add(chatId);
+                log(`🎉 Admin auto-registered: ${chatId}`, 'admin');
+
+                // Send welcome message on first admin detection
+                if (AdminState.firstTimeAdmin) {
+                    AdminState.firstTimeAdmin = false;
+                    setTimeout(async () => {
+                        try {
+                            await msg.reply(
+                                `👑 *Welcome Admin!*\n\n` +
+                                `You're automatically recognized as admin.\n\n` +
+                                `📱 *Quick Commands:*\n` +
+                                `!status - Bot status\n` +
+                                `!pending - Pending payments\n` +
+                                `!vstats - Verification stats\n` +
+                                `!help - All commands\n\n` +
+                                `Type !help for full command list.`
+                            );
+                        } catch (e) {}
+                    }, 1000);
+                }
+            }
+
+            const isAdmin = isFromAdmin;
             const isTempAdmin = AdminState.tempAdminChat === chatId;
 
-            // Check for admin reply commands (reply to verification messages)
+            // Handle admin reply commands (for payment verifications)
             if (isAdmin || isTempAdmin) {
                 const replyHandled = await handleAdminReplyCommand(msg, chatId, body);
                 if (replyHandled) return;
             }
 
+            // Handle admin commands - ANY message starting with ! from admin
             if ((isAdmin || isTempAdmin) && body.startsWith('!')) {
                 try {
+                    log(`👑 Admin command from ${chatId}: ${body.slice(0, 30)}...`, 'admin');
                     const reply = await handleAdminCommand(msg, chatId, body);
                     if (reply) {
                         await msg.reply(reply);
@@ -4400,14 +4712,14 @@ async function startWhatsApp() {
                     return;
                 } catch (e) {
                     log('Admin command error: ' + e.message, 'error');
-                    await msg.reply('❌ Error executing command: ' + e.message);
+                    await msg.reply('❌ Error: ' + e.message);
                     return;
                 }
             }
 
             // 🚫 WHITELIST/PRIVATE MODE CHECK
-            // Only check if not admin and bot is in test mode
-            if (TEST_BOARD.enabled && !isAdmin(chatId) && !isWhitelisted(chatId)) {
+            // Skip whitelist check for admin
+            if (TEST_BOARD.enabled && !isAdmin && !isWhitelisted(chatId)) {
                 // Store message for later review
                 if (TEST_BOARD.saveExternalMessages) {
                     await saveExternalMessage(chatId, body);
@@ -4418,7 +4730,7 @@ async function startWhatsApp() {
             }
 
             // Check maintenance mode (only for non-admin users)
-            if (AdminState.maintenanceMode && !AdminState.isAdminChat(chatId)) {
+            if (AdminState.maintenanceMode && !isAdmin) {
                 await msg.reply('🔧 *Maintenance Mode*\n\nBot temporarily under maintenance. Please try again later! 🙏');
                 return;
             }
