@@ -1,19 +1,22 @@
 /**
  * SIMFLY OS v8.0 — MASTER BOT CONFIGURATION
- * Sab kuch yahan set karo — .env ki zaroorat nahi!
  * ═══════════════════════════════════════════════════════
+ *
+ * API KEYS: Set in Environment Variables (Render/Dashboard)
+ * Render pe jaake: Environment Variables section mein add karein
  */
 
 // ═══════════════════════════════════════════════════════
 // GROQ AI — console.groq.com se FREE key lo
+// Environment Variable: GROQ_API_KEY
 // ═══════════════════════════════════════════════════════
-const GROQ_API_KEY = 'YOUR_GROQ_API_KEY_HERE';
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const GROQ_MODEL = 'llama-3.3-70b-versatile'; // ya 'llama-3.1-8b-instant' for faster
 
 // ═══════════════════════════════════════════════════════
 // GEMINI AI — makersuite.google.com se FREE API keys lo
+// Environment Variables: GEMINI_API_KEY_1, GEMINI_API_KEY_2, etc.
 // ═══════════════════════════════════════════════════════
-// 10 API slots with fallback system - if one fails, next one tries
 const GEMINI_APIS = [
   { key: 'GEMINI_API_KEY_1', name: 'Gemini-2.5-Flash', model: 'models/gemini-2.5-flash' },
   { key: 'GEMINI_API_KEY_2', name: 'Gemini-2.5-Pro', model: 'models/gemini-2.5-pro' },
@@ -27,25 +30,26 @@ const GEMINI_APIS = [
   { key: 'GEMINI_API_KEY_10', name: 'Gemini-2.5-Pro-Backup', model: 'models/gemini-2.5-pro' }
 ];
 
-// Get actual API keys from environment variables or hardcode here
+// Get Gemini API keys from Environment Variables ONLY
 const GEMINI_API_KEYS = [
-  process.env.GEMINI_API_KEY_1 || 'YOUR_GEMINI_API_KEY_1_HERE',
-  process.env.GEMINI_API_KEY_2 || 'YOUR_GEMINI_API_KEY_2_HERE',
-  process.env.GEMINI_API_KEY_3 || 'YOUR_GEMINI_API_KEY_3_HERE',
-  process.env.GEMINI_API_KEY_4 || 'YOUR_GEMINI_API_KEY_4_HERE',
-  process.env.GEMINI_API_KEY_5 || 'YOUR_GEMINI_API_KEY_5_HERE',
-  process.env.GEMINI_API_KEY_6 || 'YOUR_GEMINI_API_KEY_6_HERE',
-  process.env.GEMINI_API_KEY_7 || 'YOUR_GEMINI_API_KEY_7_HERE',
-  process.env.GEMINI_API_KEY_8 || 'YOUR_GEMINI_API_KEY_8_HERE',
-  process.env.GEMINI_API_KEY_9 || 'YOUR_GEMINI_API_KEY_9_HERE',
-  process.env.GEMINI_API_KEY_10 || 'YOUR_GEMINI_API_KEY_10_HERE'
-];
+  process.env.GEMINI_API_KEY_1,
+  process.env.GEMINI_API_KEY_2,
+  process.env.GEMINI_API_KEY_3,
+  process.env.GEMINI_API_KEY_4,
+  process.env.GEMINI_API_KEY_5,
+  process.env.GEMINI_API_KEY_6,
+  process.env.GEMINI_API_KEY_7,
+  process.env.GEMINI_API_KEY_8,
+  process.env.GEMINI_API_KEY_9,
+  process.env.GEMINI_API_KEY_10
+].filter(Boolean); // Remove undefined/null keys
 
 // ═══════════════════════════════════════════════════════
 // ADMIN WHATSAPP NUMBER
+// Environment Variable: ADMIN_NUMBER
 // Format: 923057258561 (92 = Pakistan code, baki number)
 // ═══════════════════════════════════════════════════════
-const ADMIN_NUMBER = 'YOUR_WHATSAPP_NUMBER_HERE';
+const ADMIN_NUMBER = process.env.ADMIN_NUMBER || '';
 
 // ═══════════════════════════════════════════════════════
 // TEST BOARD / PRIVATE MODE — Only whitelisted numbers can use bot
@@ -76,28 +80,28 @@ const BOT_MODE = {
 
 // ═══════════════════════════════════════════════════════
 // FIREBASE SETTINGS
+// Environment Variables: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY, FIREBASE_DATABASE_URL
 // firebase.google.com > Project Settings > Service Accounts
 // ═══════════════════════════════════════════════════════
 const FIREBASE = {
-  // Project Settings se milay ga
-  projectId: 'YOUR_FIREBASE_PROJECT_ID',
+  // Project ID from Firebase
+  projectId: process.env.FIREBASE_PROJECT_ID || '',
 
-  // Service Account JSON mein "client_email"
-  clientEmail: 'YOUR_FIREBASE_CLIENT_EMAIL',
+  // Service Account "client_email"
+  clientEmail: process.env.FIREBASE_CLIENT_EMAIL || '',
 
-  // Service Account JSON mein "private_key" (poora key yahan paste karein)
-  privateKey: `-----BEGIN PRIVATE KEY-----
-YOUR_FIREBASE_PRIVATE_KEY_HERE
------END PRIVATE KEY-----`,
+  // Service Account "private_key" - Render pe multiline support hota hai
+  privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n') || '',
 
   // Realtime Database URL
-  databaseURL: 'YOUR_FIREBASE_DATABASE_URL'
+  databaseURL: process.env.FIREBASE_DATABASE_URL || ''
 };
 
 // ═══════════════════════════════════════════════════════
 // APP / WEBHOOK URL (Railway/Render URL deploy ke baad)
+// Environment Variable: APP_URL
 // ═══════════════════════════════════════════════════════
-const APP_URL = 'YOUR_APP_URL_HERE';
+const APP_URL = process.env.APP_URL || '';
 
 // ═══════════════════════════════════════════════════════
 // AUTOMATION SETTINGS

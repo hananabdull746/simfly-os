@@ -39,6 +39,18 @@ const {
 const { AUTOMATION } = require('./config');
 
 // ═══════════════════════════════════════════════════════
+// 🔧 STARTUP CONFIGURATION CHECK
+// ═══════════════════════════════════════════════════════
+console.log('🔧 SimFly OS Configuration Check:');
+console.log('═══════════════════════════════════');
+console.log(`📱 ADMIN_NUMBER: ${ADMIN_NUMBER ? '✓ Set' : '✗ NOT SET'}`);
+console.log(`🤖 GROQ_API_KEY: ${GROQ_API_KEY && GROQ_API_KEY.length > 10 ? '✓ Set (' + GROQ_API_KEY.slice(0, 10) + '...)' : '✗ NOT SET'}`);
+console.log(`🔑 GEMINI_API_KEYS: ${GEMINI_API_KEYS.length} keys configured`);
+console.log(`🔥 FIREBASE: ${isFirebaseEnabled() ? '✓ Enabled' : '✗ Disabled'}`);
+console.log(`🌐 APP_URL: ${APP_URL || 'Not set'}`);
+console.log('═══════════════════════════════════\n');
+
+// ═══════════════════════════════════════════════════════
 // WHITELIST / PRIVATE MODE HELPERS
 // ═══════════════════════════════════════════════════════
 function isWhitelisted(chatId) {
