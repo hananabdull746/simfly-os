@@ -5,7 +5,7 @@
  */
 
 const express = require('express');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
@@ -30,7 +30,8 @@ const {
     TEST_BOARD,
     BOT_MODE,
     isGroqEnabled,
-    isFirebaseEnabled
+    isFirebaseEnabled,
+    isGeminiEnabled
 } = require('./config');
 
 // Add this code after line 30 in index.js (after the imports)
