@@ -4742,6 +4742,199 @@ async function startWhatsApp() {
                 return;
             }
 
+            // ════════════════════════════════════════════════════════════════════════════
+            // 🌸 NATURAL CONVERSATION FLOW v2.0 (Non-rushed, Human-like)
+            // ════════════════════════════════════════════════════════════════════════════
+
+            // Flow States
+            const FLOW_STATES = {
+                IDLE: 'idle',
+                GREETING: 'greeting',
+                GOT_NAME: 'got_name',
+                GOT_DEVICE: 'got_device',
+                PLAN_SELECTION: 'plan_selection',
+                AWAITING_PAYMENT: 'awaiting_payment',
+                PAYMENT_SENT: 'payment_sent',
+                ORDER_COMPLETE: 'order_complete'
+            };
+
+            // Simple in-memory user states (can be moved to Firebase later)
+            if (!global.userFlows) global.userFlows = new Map();
+
+            const userFlow = global.userFlows.get(chatId) || { state: FLOW_STATES.IDLE, name: null, device: null, lastActivity: Date.now() };
+
+            // Update activity timestamp
+            userFlow.lastActivity = Date.now();
+
+            // Typing debounce - wait 4 seconds before responding
+            if (!global.typingTimers) global.typingTimers = {};
+
+            if (global.typingTimers[chatId]) {
+                clearTimeout(global.typingTimers[chatId]);
+            }
+
+            // Set timer to process message after 4 seconds of no typing
+            global.typingTimers[chatId] = setTimeout(async () => {
+                delete global.typingTimers[chatId];
+                await processNaturalFlow(msg, chatId, body, userFlow, FLOW_STATES);
+            }, 4000);
+
+            // Save user flow state
+            global.userFlows.set(chatId, userFlow);
+
+            return; // Wait for debounce
+
+            async function processNaturalFlow(msg, chatId, body, userFlow, FLOW_STATES) {
+                const lowerBody = body.toLowerCase().trim();
+                const isNewUser = userFlow.state === FLOW_STATES.IDLE;
+
+                // Step 1: First message (New customer)
+                if (isNewUser) {
+                    userFlow.state = FLOW_STATES.GREETING;
+                    global.userFlows.set(chatId, userFlow);
+
+                    const greeting = `Hey! 👋 Aap ka naam kya hai aur konsa device use kar rahe hain?`;
+                    await msg.reply(greeting);
+                    await saveMessage(chatId, { body: greeting, fromMe: true, time: Date.now() });
+                    return;
+                }
+
+                // Step 2: Got response to greeting (Name + Device usually)
+                if (userFlow.state === FLOW_STATES.GREETING) {
+                    // Try to extract name and device from message
+                    const nameMatch = body.match(/(?:mera naam|my name is|main|i am|naam)\s*([a-zA-Z\s]{2,20})/i);
+                    const deviceMatch = body.match(/(?:iphone|samsung|pixel|xiaomi|oppo|vivo|device|phone)\s*(?:xs|xr|11|12|13|14|15|16|[0-9\+\s]+)?/i);
+
+                    if (nameMatch) {
+                        userFlow.name = nameMatch[1].trim().split(' ')[0]; // First name only
+                    }
+
+                    if (deviceMatch) {
+                        userFlow.device = deviceMatch[0].trim();
+                        userFlow.state = FLOW_STATES.GOT_DEVICE;
+
+                        // Acknowledge and show plans
+                        const ack = userFlow.name
+                            ? `Nice ${userFlow.name}! Aur device konsa hai? 📱`
+                            : `Aur device konsa hai bhai? 📱`;
+
+                        await msg.reply(ack);
+                        await saveMessage(chatId, { body: ack, fromMe: true, time: Date.now() });
+                    } else if (userFlow.name) {
+                        // Got name but not device yet
+                        userFlow.state = FLOW_STATES.GOT_NAME;
+                        const askDevice = `Nice ${userFlow.name}! Aur device konsa use kar rahe hain? 📱`;
+                        await msg.reply(askDevice);
+                        await saveMessage(chatId, { body: askDevice, fromMe: true, time: Date.now() });
+                    } else {
+                        // Didn't get name or device, ask again
+                        const askAgain = `Naam aur device batain bhai? 📱`;
+                        await msg.reply(askAgain);
+                        await saveMessage(chatId, { body: askAgain, fromMe: true, time: Date.now() });
+                    }
+
+                    global.userFlows.set(chatId, userFlow);
+                    return;
+                }
+
+                // Step 3: Got device, show plans
+                if (userFlow.state === FLOW_STATES.GOT_NAME) {
+                    const deviceMatch = body.match(/(?:iphone|samsung|pixel|xiaomi|oppo|vivo)\s*(?:xs|xr|11|12|13|14|15|16|[0-9\+\s]+)?/i);
+                    if (deviceMatch) {
+                        userFlow.device = deviceMatch[0].trim();
+                        userFlow.state = FLOW_STATES.GOT_DEVICE;
+                    } else {
+                        const askDevice = `Device ka naam batain bhai? iPhone, Samsung, etc. 📱`;
+                        await msg.reply(askDevice);
+                        await saveMessage(chatId, { body: askDevice, fromMe: true, time: Date.now() });
+                        return;
+                    }
+                }
+
+                if (userFlow.state === FLOW_STATES.GOT_DEVICE) {
+                    userFlow.state = FLOW_STATES.PLAN_SELECTION;
+                    global.userFlows.set(chatId, userFlow);
+
+                    // Show plans
+                    const plansMsg = `Bilkul! SimFly ke 3 plans hain ✅
+
+📦 500MB — Rs. 250
+📦 1GB — Rs. 700
+📦 5GB — Rs. 2000
+
+Sab plans non-PTA phones ke liye perfect hain 🔥
+${userFlow.name ? userFlow.name : 'Bhai'}, konsa plan lena chahoge?`;
+
+                    await msg.reply(plansMsg);
+                    await saveMessage(chatId, { body: plansMsg, fromMe: true, time: Date.now() });
+                    return;
+                }
+
+                // Step 4: Plan selection / Questions
+                if (userFlow.state === FLOW_STATES.PLAN_SELECTION) {
+                    // Check if user selected a plan
+                    const planMatch = lowerBody.match(/(500mb|1gb|5gb|500|1\s*gb|5\s*gb)/);
+                    const isQuestion = lowerBody.includes('?') || lowerBody.includes('kaise') || lowerBody.includes('kya') || lowerBody.includes('kitne');
+
+                    if (planMatch) {
+                        const plan = planMatch[0].includes('500') ? '500MB' : planMatch[0].includes('1') ? '1GB' : '5GB';
+                        userFlow.selectedPlan = plan;
+                        userFlow.state = FLOW_STATES.AWAITING_PAYMENT;
+                        global.userFlows.set(chatId, userFlow);
+
+                        const paymentMsg = `Plan confirm! Ab sirf payment karo 💳
+
+Payment Methods:
+• JazzCash: ${BUSINESS.payments.jazzcash.number}
+• Easypaisa: ${BUSINESS.payments.easypaisa.number}
+
+Payment ke baad screenshot bhejo, main verify kar lunga ✅`;
+
+                        await msg.reply(paymentMsg);
+                        await saveMessage(chatId, { body: paymentMsg, fromMe: true, time: Date.now() });
+                        return;
+                    }
+
+                    // If question, use AI to answer
+                    if (isQuestion) {
+                        const context = userFlow.name ? `Customer name: ${userFlow.name}. ` : '';
+                        const aiReply = await getAIResponseWithContext(body, chatId, [{ body: context + body, fromMe: false, time: Date.now() }]);
+                        await msg.reply(aiReply);
+                        await saveMessage(chatId, { body: aiReply, fromMe: true, time: Date.now() });
+                        return;
+                    }
+
+                    // Generic response for other messages
+                    const helpMsg = `Koi sawal ho toh pooch sakte hain! Ya plan select karein:\n\n📦 500MB — Rs. 250\n📦 1GB — Rs. 700\n📦 5GB — Rs. 2000`;
+                    await msg.reply(helpMsg);
+                    await saveMessage(chatId, { body: helpMsg, fromMe: true, time: Date.now() });
+                    return;
+                }
+
+                // Step 5: Awaiting payment
+                if (userFlow.state === FLOW_STATES.AWAITING_PAYMENT) {
+                    // Handle text messages during payment phase
+                    const isPaymentMention = lowerBody.includes('payment') || lowerBody.includes('send') || lowerBody.includes('bhej') || lowerBody.includes('done');
+
+                    if (isPaymentMention) {
+                        const waitMsg = `Screenshot ka wait kar raha houn bhai! 📱 Jaise hi aaye ga, verify kar ke confirm kar dunga ✅`;
+                        await msg.reply(waitMsg);
+                        await saveMessage(chatId, { body: waitMsg, fromMe: true, time: Date.now() });
+                    } else {
+                        // Use AI for other questions
+                        const aiReply = await getAIResponseWithContext(body, chatId, await getChatContext(chatId, msg));
+                        await msg.reply(aiReply);
+                        await saveMessage(chatId, { body: aiReply, fromMe: true, time: Date.now() });
+                    }
+                    return;
+                }
+
+                // Default: Use AI for any other state
+                const aiResponse = await getAIResponseWithContext(body, chatId, await getChatContext(chatId, msg));
+                await msg.reply(aiResponse);
+                await saveMessage(chatId, { body: aiResponse, fromMe: true, time: Date.now() });
+            }
+
             // ═══════════════════════════════════════════════════════
             // 📸 SCREENSHOT DETECTION + PAYMENT VERIFICATION SYSTEM v2.0
             // ═══════════════════════════════════════════════════════
