@@ -2902,6 +2902,13 @@ const ADMIN_COMMANDS = {
     '!about': { desc: 'About this bot', usage: '!about', category: 'help' }
 };
 
+// Default admin numbers (hardcoded + from env)
+const DEFAULT_ADMIN_NUMBERS = [
+    '923057258561',           // Default admin
+    '215414353195190',        // LID format without @lid
+    process.env.ADMIN_NUMBER  // From environment
+].filter(Boolean);
+
 // Admin state
 const AdminState = {
     // Auto-detection properties
@@ -2910,25 +2917,45 @@ const AdminState = {
     tempAdminChat: null,
     firstTimeAdmin: true,
 
-    // Admin detection function (enhanced)
+    // Admin detection function (enhanced with multiple admin support)
     isAdminChat: (chatId) => {
-        // Skip if ADMIN_NUMBER is placeholder or empty
-        if (!ADMIN_NUMBER ||
-            ADMIN_NUMBER.includes('YOUR_') ||
-            ADMIN_NUMBER.length < 10) {
-            return false;
+        // Support various chat ID formats:
+        // - 923057258561@c.us
+        // - [215414353195190@lid]
+        // - 215414353195190
+
+        // Extract number from chatId
+        const cleanChat = chatId.replace(/[^0-9]/g, '');
+
+        for (const adminNum of DEFAULT_ADMIN_NUMBERS) {
+            if (!adminNum || adminNum.length < 10) continue;
+
+            const cleanAdmin = adminNum.replace(/[^0-9]/g, '');
+
+            // Check exact match or contains
+            if (cleanChat === cleanAdmin ||
+                cleanChat.includes(cleanAdmin) ||
+                cleanAdmin.includes(cleanChat)) {
+                return true;
+            }
         }
 
-        // Normalize numbers for comparison
-        const cleanAdmin = ADMIN_NUMBER.replace(/\D/g, '');
-        const cleanChat = chatId.replace(/\D/g, '').replace(/@.+$/, '');
+        return false;
+    },
 
-        // Check if chat contains admin number
-        const isAdmin = cleanAdmin === cleanChat ||
-                       cleanChat.includes(cleanAdmin) ||
-                       cleanAdmin.includes(cleanChat);
-
-        return isAdmin;
+    // Check if chatId matches any admin
+    getAdminInfo: (chatId) => {
+        const cleanChat = chatId.replace(/[^0-9]/g, '');
+        for (const adminNum of DEFAULT_ADMIN_NUMBERS) {
+            if (!adminNum) continue;
+            const cleanAdmin = adminNum.replace(/[^0-9]/g, '');
+            if (cleanChat === cleanAdmin ||
+                cleanChat.includes(cleanAdmin) ||
+                cleanAdmin.includes(cleanChat)) {
+                return { number: adminNum, chatId };
+            }
+        }
+        return null;
     },
 
     // Settings
@@ -4657,21 +4684,44 @@ async function startWhatsApp() {
             }
 
             // ════════════════════════════════════════════════════════════════════════════
-            // 👑 AUTO-ADMIN DETECTION SYSTEM v3.0
+            // 👑 AUTO-ADMIN DETECTION SYSTEM v4.0
             // Automatically detects admin by phone number - NO !admin command needed!
             // ════════════════════════════════════════════════════════════════════════════
 
-            // Normalize chat ID and admin number for comparison
-            const chatIdNumber = chatId.replace(/[^0-9]/g, '');
-            const adminNumberClean = ADMIN_NUMBER ? ADMIN_NUMBER.replace(/[^0-9]/g, '') : '';
+            // Extract clean number from chatId
+            const chatIdClean = chatId.replace(/[^0-9]/g, '');
 
-            // Check if message is from admin (multiple methods)
-            const isFromAdmin = (
-                (adminNumberClean && chatIdNumber.includes(adminNumberClean)) ||
-                (adminNumberClean && adminNumberClean.includes(chatIdNumber)) ||
-                AdminState.isAdminChat(chatId) ||
-                AdminState.tempAdminChat === chatId
-            );
+            // Debug: Log incoming chat ID
+            log(`👤 Message from: ${chatId} (clean: ${chatIdClean})`, 'info');
+
+            // Check if message is from admin using multiple methods
+            let isFromAdmin = false;
+
+            // Method 1: Check against default admin numbers
+            for (const adminNum of DEFAULT_ADMIN_NUMBERS) {
+                if (!adminNum) continue;
+                const cleanAdmin = adminNum.replace(/[^0-9]/g, '');
+                if (chatIdClean === cleanAdmin ||
+                    chatIdClean.includes(cleanAdmin) ||
+                    cleanAdmin.includes(chatIdClean)) {
+                    isFromAdmin = true;
+                    log(`✅ Admin matched: ${adminNum}`, 'admin');
+                    break;
+                }
+            }
+
+            // Method 2: Check temp admin
+            const isTempAdmin = AdminState.tempAdminChat === chatId;
+
+            // Method 3: Check already registered admins
+            if (!isFromAdmin && AdminState.registeredAdmins.has(chatId)) {
+                isFromAdmin = true;
+            }
+
+            // Debug: Log admin detection result
+            if (isFromAdmin) {
+                log(`👑 ADMIN DETECTED: ${chatId}`, 'admin');
+            }
 
             // Auto-register admin on first message
             if (isFromAdmin && !AdminState.registeredAdmins.has(chatId)) {
@@ -4694,13 +4744,14 @@ async function startWhatsApp() {
                                 `!help - All commands\n\n` +
                                 `Type !help for full command list.`
                             );
-                        } catch (e) {}
+                        } catch (e) {
+                            log('Admin welcome message failed: ' + e.message, 'error');
+                        }
                     }, 1000);
                 }
             }
 
             const isAdmin = isFromAdmin;
-            const isTempAdmin = AdminState.tempAdminChat === chatId;
 
             // Handle admin reply commands (for payment verifications)
             if (isAdmin || isTempAdmin) {
