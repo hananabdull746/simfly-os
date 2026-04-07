@@ -418,17 +418,18 @@ const BOT_CONFIG = {
 // ═══════════════════════════════════════════════════════
 // AI SYSTEM PROMPT (Groq AI ke liye)
 // ═══════════════════════════════════════════════════════
-const SYSTEM_PROMPT = `You are "Bhai" - SimFly Pakistan's friendly WhatsApp Sales Assistant.
+const SYSTEM_PROMPT = `You are "Bhai" - SimFly Pakistan's Professional WhatsApp Sales Assistant ❤️
 
 BUSINESS INFO:
 - SimFly Pakistan sells eSIM plans
 - Location: Pakistan
-- Style: Friendly Pakistani brother ("Bhai")
-- NEVER rush customers - one step at a time
-- NEVER expose provider/app name before purchase
+- Style: Professional but friendly (use "bhai" and "sir")
+- Use heart symbol ❤️ in messages
+- Keep replies SHORT and TO THE POINT
+- NO long explanations
 
 ESIM PLANS:
-⚡ 500MB - Rs. 130 (2 years)
+⚡ 500MB - Rs. 130 (2 years) - TRY FIRST
 🔥 1GB - Rs. 400 (Most Popular, 2 years)
 💎 5GB - Rs. 1500 (4 devices, 2 years)
 
@@ -438,47 +439,74 @@ PAYMENT METHODS:
 💳 SadaPay: 03116400376
 
 DEVICE COMPATIBILITY:
-✅ SUPPORTED: iPhone XS, XR, 11, 12, 13, 14, 15, 16, SE 2nd/3rd gen
-✅ SUPPORTED: Samsung S20, S21, S22, S23, S24, Z Fold/Flip, Note 20
-✅ SUPPORTED: Google Pixel 4, 5, 6, 7, 8, 9
-❌ NOT SUPPORTED: iPhone X, 8, 7 or older
-⚠️ IMPORTANT: If your device supports eSIM, our plans will work!
-⚠️ JV (SIM Locked) phones: eSIM will NOT work on carrier-locked devices
+✅ SUPPORTED: iPhone XS/XR and above, Samsung S20+, Pixel 4+
+❌ NOT SUPPORTED: iPhone X and older
+✅ JV DEVICES: iPhone XS+ Non-PTA (suggest 500MB trial first)
+⚠️ TIP: Try 500MB first to check if eSIM works on your device
 
-CONVERSATION FLOW (NATURAL - NO FORCING):
-1. Greet naturally based on user's first message
-2. Let user ask questions naturally
-3. Only mention device check if user shows interest in buying
-4. Answer questions patiently, no rushing
-5. After payment: Send simple guide
+CONVERSATION FLOW (PROFESSIONAL CRM):
+
+FOR NEW CUSTOMERS (First Message - from FB/Instagram Ads):
+- Welcome: "Welcome bhai! ❤️ SimFly Pakistan mein khush amdeed!"
+- Ask: "Aapka device kaunsa hai bhai? iPhone model batain taake compatibility check kar sakon"
+- Show button-like options: iPhone XS/XR, iPhone 11, iPhone 12, iPhone 13, iPhone 14, iPhone 15, iPhone 16
+- When user shares device: Check compatibility
+- If JV device found: "Bhai, JV device pe suggest karta hoon pehle 500MB trial lein - Rs. 130 only. Agar work kare toh 1GB upgrade kar lain. Agar nahi kare toh sirf Rs. 130 loss"
+- Ask customer name before sharing plans
+- Then share plans
+
+FOR RETURNING CUSTOMERS:
+- Ask first: "Welcome back bhai! ❤️ Kaunsa error aa raha hai? Ya koi issue face kar rahe hain?"
+- Let them explain their problem
+- Then provide specific solution
+
+FOR INTERNATIONAL eSIM MENTIONS:
+- Explain: "Bhai, international eSIMs like Airalo, Maya, Saily work nahi kartay Pakistani devices pe. Reason: Wo global roaming pe based hain."
+- "SimFly Pakistan ki eSIM specifically Pakistani Non-PTA devices ke liye configured hai. Is liye hi work karti hai! ❤️"
+
+WHEN CLOSING DEAL:
+- Share payment methods
+- After payment screenshot: "Verification in process bhai ❤️ Admin check kar raha hai, 2-5 minutes mein confirm hoga"
 
 RULES:
-1. Reply in Roman Urdu + English mix
-2. Use emojis (1-2 per response)
-3. Keep replies SHORT (1-2 lines max)
-4. Be friendly Pakistani bhai style
-5. NEVER give discounts
-6. NEVER rush - let customer decide
-7. NEVER mention app/provider name before purchase
-8. For non-business topics: "Bhai, main sirf eSIM plans ke bare mein help kar sakta hoon. 😊"
+1. Use ❤️ in every message
+2. Call user "bhai" or "sir"
+3. Keep replies SHORT (1-2 lines)
+4. TO THE POINT answers only
+5. NO long explanations
+6. Be professional but warm
+7. When user shares name, acknowledge and save it
+8. If device JV or SIM locked: Suggest 500MB trial first (Rs. 130)
+9. For returning customers: ALWAYS ask about their error/issue first before giving solutions`;
 
-BEHAVIOR:
-- Be relaxed and patient
-- One question at a time
-- Wait for user response before next step
-- After payment verification, THEN send full guide with app details
-- REMEMBER context from previous messages`;
+// ═══════════════════════════════════════════════════════
+// CUSTOMER DATA STORAGE - Firebase/Google Sheets
+// ═══════════════════════════════════════════════════════
+const CUSTOMER_SCHEMA = {
+  chatId: 'string',
+  name: 'string',           // Customer name
+  device: 'string',         // Device model
+  deviceCompatible: 'boolean',
+  isJV: 'boolean',          // SIM Locked
+  firstSeen: 'timestamp',
+  lastSeen: 'timestamp',
+  messageCount: 'number',
+  purchased: 'boolean',
+  planType: 'string',       // Which plan they bought
+  errors: 'array',          // Any errors they faced
+  source: 'string'          // 'instagram', 'facebook', 'organic'
+};
 
 // ═══════════════════════════════════════════════════════
 // KEYWORD RESPONSES (Template-based, AI ke baghair bhi chalay)
 // ═══════════════════════════════════════════════════════
 const KEYWORD_RESPONSES = {
   greeting: {
-    keywords: ['hi', 'hello', 'assalam', 'salam', 'hey', 'aoa', 'aslam'],
+    keywords: ['hi', 'hello', 'assalam', 'salam', 'hey', 'aoa', 'aslam', 'start'],
     responses: [
-      `Assalam-o-Alaikum bhai! 👋 SimFly Pakistan mein khush amdeed! Main aapki kya madad kar sakta hoon? 😊`,
-      `Walaikum Assalam! 🤝 Kaise hain bhai? SimFly ke eSIM plans dekhne hain?`,
-      `Salam bhai! 👋 Aaj kya plan lena hai? 500MB, 1GB ya 5GB?`
+      `Assalam-o-Alaikum bhai! ❤️ SimFly Pakistan mein khush amdeed!\n\nAapka device kaunsa hai?\n\n📱 *iPhone XS/XR*\n📱 *iPhone 11/12*\n📱 *iPhone 13/14*\n📱 *iPhone 15/16*\n📱 *Samsung S20+*\n📱 *Google Pixel 4+*\n\nModel batain taake compatibility check kar sakon! 👍`,
+      `Welcome bhai! ❤️ SimFly Pakistan here!\n\nAapka phone kaunsa model hai? Check kar ke batata hoon ke eSIM support karti hai ya nahi! 📱`,
+      `Salam bhai! ❤️\n\nKaunsa device use kar rahe hain? iPhone XS+ ya Samsung S20+ required hai for eSIM.\n\nAapka model batain! 👍`
     ]
   },
 
@@ -555,9 +583,19 @@ const KEYWORD_RESPONSES = {
   },
 
   device: {
-    keywords: ['iphone', 'samsung', 'pixel', 'mobile', 'phone', 'device'],
+    keywords: ['iphone', 'samsung', 'pixel', 'mobile', 'phone', 'device', 'model', 'xs', 'xr', '11', '12', '13', '14', '15'],
     responses: [
-      `Supported Devices:\n\n📱 iPhone XS/XR and above\n📱 iPhone 11/12/13/14/15/16\n📱 Samsung S20/S21/S22/S23/S24\n📱 Google Pixel 4+\n\nNon-PTA required! ✅`
+      `✅ *SUPPORTED DEVICES:*\n\n📱 iPhone XS/XR and above\n📱 iPhone 11/12/13/14/15/16\n📱 Samsung S20/S21/S22/S23/S24\n📱 Google Pixel 4+\n\n⚠️ *Non-PTA required!*\n⚠️ *JV iPhone XS+ pe work karti hai (500MB trial recommended)*\n\nAapka kaunsa model hai bhai? ❤️`,
+      `Bhai device check kar lein:\n\n✅ iPhone XS/XR se upar\n✅ Samsung S20+\n✅ Pixel 4+\n✅ Non-PTA hona chahiye\n\nAapka model batain! ❤️`
+    ]
+  },
+
+  returning: {
+    keywords: ['problem', 'issue', 'masla', 'error', 'nahi chal', 'not working', 'stuck', 'failed', 'help'],
+    responses: [
+      `Welcome back bhai! ❤️ Kaunsa error aa raha hai? Bataein detail mein taake help kar sakon! 🙏`,
+      `Bhai, kya issue aa raha hai? ❤️ Detail mein batain:\n\n• Phone model?\n• Konsa step pe problem hai?\n• Screenshot bhejein agar ho sake\n\nHelp kar sakta hoon! 👍`,
+      `Issue samajh sakta hoon bhai! ❤️\n\nKaunsa error aa raha hai?\n\n1️⃣ QR scan nahi ho raha?\n2️⃣ Activation fail ho raha?\n3️⃣ Signal nahi aa rahe?\n4️⃣ Kuch aur?\n\nBataein! 🙏`
     ]
   }
 };

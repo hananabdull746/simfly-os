@@ -653,6 +653,369 @@ Agar masla ho toh "support" likhein!`;
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 🔍 DEEP CHAT ANALYSIS — Analyze conversation before replying
+// ════════════════════════════════════════════════════════════════════════════
+async function analyzeChatBeforeReply(chatId, userMessage, history, profile) {
+    const analysis = {
+        isNewCustomer: false,
+        isReturningCustomer: false,
+        hasIssue: false,
+        issueType: null,
+        deviceMentioned: null,
+        deviceCompatible: null,
+        isJVDevice: false,
+        nameShared: null,
+        purchaseStage: profile.purchaseStage || 'new',
+        lastTopic: null,
+        sentiment: 'neutral',
+        shouldAskDevice: false,
+        shouldAskName: false,
+        shouldSuggestTrial: false,
+        needsPaymentVerification: false,
+        hasMedia: false,
+        returningCustomerIssue: null
+    };
+
+    // Check if new customer (no history or very little)
+    if (history.length <= 2) {
+        analysis.isNewCustomer = true;
+    } else {
+        analysis.isReturningCustomer = true;
+    }
+
+    // Check for device mentions
+    const devicePatterns = [
+        /iphone\s*(\d+|[xsxrm]+)/i,
+        /(xs|xr|x|11|12|13|14|15|16)\s*(pro|max|plus|mini)?/i,
+        /samsung\s*s?(\d+)/i,
+        /galaxy\s*s?(\d+)/i,
+        /pixel\s*(\d+)/i
+    ];
+
+    for (const pattern of devicePatterns) {
+        const match = userMessage.match(pattern) || history.slice(-3).join(' ').match(pattern);
+        if (match) {
+            analysis.deviceMentioned = match[0];
+            const deviceCheck = checkDeviceCompatibility(match[0]);
+            analysis.deviceCompatible = deviceCheck.compatible;
+            analysis.isJVDevice = userMessage.toLowerCase().includes('jv') ||
+                                userMessage.toLowerCase().includes('japanese') ||
+                                userMessage.toLowerCase().includes('locked') ||
+                                userMessage.toLowerCase().includes('sim locked');
+            break;
+        }
+    }
+
+    // Check for name sharing
+    const namePatterns = [
+        /(?:my name is|i am|name|mera naam|main)\s+([a-zA-Z\s]{2,20})/i,
+        /(?:call me|mujhe)\s+([a-zA-Z\s]{2,15})/i
+    ];
+
+    for (const pattern of namePatterns) {
+        const match = userMessage.match(pattern);
+        if (match) {
+            analysis.nameShared = match[1].trim();
+            // Save name to profile
+            if (analysis.nameShared && analysis.nameShared.length > 2) {
+                profile.name = analysis.nameShared;
+                await saveCustomerName(chatId, analysis.nameShared);
+            }
+            break;
+        }
+    }
+
+    // Check for issues/problems
+    const issueKeywords = ['error', 'problem', 'issue', 'masla', 'nahi chal', 'not working',
+                          'fail', 'stuck', 'help', 'support', 'issue hai', 'problem aa'];
+    for (const keyword of issueKeywords) {
+        if (userMessage.toLowerCase().includes(keyword)) {
+            analysis.hasIssue = true;
+            analysis.returningCustomerIssue = userMessage.slice(0, 100);
+            break;
+        }
+    }
+
+    // Check for payment-related
+    const paymentKeywords = ['payment', 'screenshot', 'pay', 'done', 'sent', 'bheja', 'transfer'];
+    for (const keyword of paymentKeywords) {
+        if (userMessage.toLowerCase().includes(keyword)) {
+            analysis.needsPaymentVerification = true;
+            break;
+        }
+    }
+
+    // Check for international eSIM mentions
+    const internationalKeywords = ['international', 'airalo', 'maya', 'saily', 'global', 'other esim'];
+    for (const keyword of internationalKeywords) {
+        if (userMessage.toLowerCase().includes(keyword)) {
+            analysis.lastTopic = 'international_esim';
+            break;
+        }
+    }
+
+    // Sentiment analysis
+    const positiveWords = ['shukria', 'thank', 'best', 'good', 'nice', 'perfect', 'great', 'awesome'];
+    const negativeWords = ['bad', 'worst', 'ganda', 'kharab', 'slow', 'bekar', 'issue', 'problem', 'masla'];
+
+    let positiveCount = 0, negativeCount = 0;
+    const words = userMessage.toLowerCase().split(/\s+/);
+    for (const word of words) {
+        if (positiveWords.includes(word)) positiveCount++;
+        if (negativeWords.includes(word)) negativeCount++;
+    }
+
+    if (negativeCount > positiveCount) analysis.sentiment = 'negative';
+    else if (positiveCount > negativeCount) analysis.sentiment = 'positive';
+
+    // Determine what to ask next
+    if (analysis.isNewCustomer && !analysis.deviceMentioned) {
+        analysis.shouldAskDevice = true;
+    }
+
+    if (analysis.isNewCustomer && analysis.deviceMentioned && !profile.name && !analysis.nameShared) {
+        analysis.shouldAskName = true;
+    }
+
+    if (analysis.isJVDevice && analysis.deviceCompatible) {
+        analysis.shouldSuggestTrial = true;
+    }
+
+    return analysis;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 💾 SAVE CUSTOMER NAME TO FIREBASE
+// ════════════════════════════════════════════════════════════════════════════
+async function saveCustomerName(chatId, name) {
+    try {
+        const cleanName = name.trim().replace(/[^a-zA-Z\s]/g, '').slice(0, 30);
+        if (cleanName.length < 2) return false;
+
+        const userKey = chatId.replace(/[^a-zA-Z0-9]/g, '_');
+
+        // Save to Firebase
+        if (DB) {
+            await DB.ref(`customers/${userKey}`).update({
+                name: cleanName,
+                nameUpdatedAt: Date.now()
+            });
+        }
+
+        // Save to local DB
+        if (!localDB.customers) localDB.customers = {};
+        if (!localDB.customers[userKey]) localDB.customers[userKey] = {};
+        localDB.customers[userKey].name = cleanName;
+        localDB.customers[userKey].nameUpdatedAt = Date.now();
+
+        log(`Customer name saved: ${userKey} = ${cleanName}`, 'info');
+        return true;
+    } catch (e) {
+        log('Save customer name error: ' + e.message, 'error');
+        return false;
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 💾 SAVE USER DEVICE INFO
+// ════════════════════════════════════════════════════════════════════════════
+async function saveUserDevice(chatId, device, compatible, isJV) {
+    try {
+        const userKey = chatId.replace(/[^a-zA-Z0-9]/g, '_');
+
+        // Save to Firebase
+        if (DB) {
+            await DB.ref(`customers/${userKey}`).update({
+                device: device,
+                deviceCompatible: compatible,
+                isJV: isJV,
+                deviceUpdatedAt: Date.now()
+            });
+        }
+
+        // Save to local DB
+        if (!localDB.customers) localDB.customers = {};
+        if (!localDB.customers[userKey]) localDB.customers[userKey] = {};
+        localDB.customers[userKey].device = device;
+        localDB.customers[userKey].deviceCompatible = compatible;
+        localDB.customers[userKey].isJV = isJV;
+        localDB.customers[userKey].deviceUpdatedAt = Date.now();
+
+        log(`Customer device saved: ${userKey} = ${device} (JV: ${isJV})`, 'info');
+        return true;
+    } catch (e) {
+        log('Save user device error: ' + e.message, 'error');
+        return false;
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🤖 AI FALLBACK CHAIN — Groq → Gemini 1 → Gemini 2
+// ════════════════════════════════════════════════════════════════════════════
+async function getAIResponseWithFallback(messages, temperature = 0.7) {
+    const errors = [];
+
+    // ATTEMPT 1: Groq AI (Primary)
+    try {
+        if (isGroqEnabled()) {
+            const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model: GROQ_MODEL,
+                messages: messages,
+                max_tokens: 500,
+                temperature: temperature
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${GROQ_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            });
+
+            const content = response.data.choices[0].message.content;
+            if (content && content.length > 10) {
+                log('AI Response: Groq (Primary) ✅', 'info');
+                return { success: true, content, source: 'groq' };
+            }
+        }
+    } catch (e) {
+        errors.push(`Groq: ${e.message}`);
+    }
+
+    // ATTEMPT 2: Gemini AI (First fallback)
+    try {
+        const geminiResponse = await getGeminiResponse(messages, GEMINI_API_KEYS[0]);
+        if (geminiResponse && geminiResponse.length > 10) {
+            log('AI Response: Gemini-1 (Fallback 1) ✅', 'info');
+            return { success: true, content: geminiResponse, source: 'gemini-1' };
+        }
+    } catch (e) {
+        errors.push(`Gemini-1: ${e.message}`);
+    }
+
+    // ATTEMPT 3: Gemini AI (Second fallback with different key)
+    try {
+        const geminiResponse = await getGeminiResponse(messages, GEMINI_API_KEYS[1] || GEMINI_API_KEYS[0]);
+        if (geminiResponse && geminiResponse.length > 10) {
+            log('AI Response: Gemini-2 (Fallback 2) ✅', 'info');
+            return { success: true, content: geminiResponse, source: 'gemini-2' };
+        }
+    } catch (e) {
+        errors.push(`Gemini-2: ${e.message}`);
+    }
+
+    // All attempts failed
+    log('AI Fallback Chain Failed: ' + errors.join(', '), 'error');
+    return { success: false, errors };
+}
+
+// Helper: Get response from Gemini
+async function getGeminiResponse(messages, apiKey) {
+    if (!apiKey || apiKey.includes('YOUR_GEMINI')) {
+        throw new Error('Invalid Gemini API key');
+    }
+
+    const promptText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+
+    const response = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+            contents: [{
+                parts: [{ text: promptText }]
+            }],
+            generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 500
+            }
+        },
+        { timeout: 15000 }
+    );
+
+    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+        return response.data.candidates[0].content.parts[0].text;
+    }
+
+    throw new Error('Empty Gemini response');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🎯 BUTTON-LIKE NEW CUSTOMER WELCOME
+// ════════════════════════════════════════════════════════════════════════════
+function getButtonLikeWelcome(isFromAd = false) {
+    const baseMessage = `Assalam-o-Alaikum bhai! ❤️ SimFly Pakistan mein *khush amdeed!*`;
+
+    const fromAdAddon = isFromAd
+        ? `\n\n*Facebook/Instagram se aye ho?* 👋\nWah bhai! Aapko special discount milega! 🎉`
+        : '';
+
+    const deviceOptions = `\n\nAapka device kaunsa hai bhai? 👇
+
+1️⃣ *iPhone XS/XR*
+2️⃣ *iPhone 11/12*
+3️⃣ *iPhone 13/14*
+4️⃣ *iPhone 15/16*
+5️⃣ *Samsung S20/S21/S22*
+6️⃣ *Pixel 4/5/6/7*
+7️⃣ *Koi aur device*
+\n*Model number batain taake compatibility check kar sakon!* ✅`;
+
+    return baseMessage + fromAdAddon + deviceOptions;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🔄 RETURNING CUSTOMER GREETING
+// ════════════════════════════════════════════════════════════════════════════
+function getReturningCustomerGreeting(profile) {
+    const greetings = [
+        `Welcome back bhai! ❤️ ${profile.name ? profile.name : ''} kaise hain?\n\n*Kaunsa error aa raha hai ya koi issue face kar rahe hain?* 🤔\n\nDetail mein batain taake help kar sakon! 🙏`,
+        `Wapis aagaye bhai! ❤️ ${profile.name ? profile.name : ''}!\n\n*Kya masla aa raha hai bhai?*\n\nBataein main solve karwata hoon! 👍`,
+        `Han bhai ${profile.name || ''}! ❤️ Dobara welcome!\n\n*Konsa issue hai?*\n\n1️⃣ eSIM activate nahi ho rahi?\n2️⃣ Signal nahi aa rahe?\n3️⃣ Data roaming issue?\n4️⃣ Kuch aur?\n\nBataein! 🙏`
+    ];
+    return greetings[Math.floor(Math.random() * greetings.length)];
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 💳 JV DEVICE TRIAL SUGGESTION
+// ════════════════════════════════════════════════════════════════════════════
+function getJVTrialSuggestion(deviceName) {
+    return `✅ *${deviceName} pe eSIM work karti hai bhai!* ❤️
+
+*Lekin JV device ke liye special suggestion:* 🤔
+
+Pehle *500MB trial lein - Rs. 130 only* ⚡
+
+✅ *Agar work kare* → 1GB upgrade kar lain
+❌ *Agar nahi kare* → Sirf Rs. 130 loss
+
+*Trial lene ke benefits:*
+📱 Confirm ho jayega eSIM support hai
+💰 Risk free - choti amount pe test
+🔥 Full confidence ke saath 1GB lena
+
+*Kya kehte hain bhai? Trial lein?* 👍`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🌍 INTERNATIONAL eSIM EXPLANATION
+// ════════════════════════════════════════════════════════════════════════════
+function getInternationalESIMExplanation() {
+    return `*International eSIMs ka issue samajhain bhai:* ❤️
+
+❌ *Airalo, Maya, Saily jaise international eSIMs Pakistani devices pe work nahi kartay*
+
+*Reason:*
+📍 Wo global roaming pe based hain
+📍 Pakistan-specific configuration nahi hai
+📍 Local networks se properly connect nahi hotay
+
+✅ *SimFly Pakistan ki eSIM:*
+📍 Specifically Pakistani Non-PTA devices ke liye configured
+📍 Local networks ke saath optimized
+📍 Is liye hi work karti hai perfectly!
+
+*Baqi sab bekar, SimFly hi asli kaam!* 💪❤️`;
+}
+
 // ============================================
 // AUTOMATION SYSTEM
 // ============================================
@@ -2808,8 +3171,6 @@ async function getAIResponse(userMessage, chatId) {
 // 🤖 AI RESPONSE WITH FULL CONTEXT - AI FIRST
 // ============================================
 async function getAIResponseWithContext(userMessage, chatId, chatContext) {
-    const msg = userMessage.toLowerCase();
-
     // 🛡️ ANTI-BAN: Check rate limit first
     if (!checkRateLimit(chatId)) {
         log(`Rate limit hit for ${chatId}, slowing down`, 'warn');
@@ -2817,27 +3178,50 @@ async function getAIResponseWithContext(userMessage, chatId, chatContext) {
     }
 
     // Build full conversation context for AI
-    let conversationHistory = [];
+    let messages = [{ role: 'system', content: SYSTEM_PROMPT }];
     if (chatContext && chatContext.length > 0) {
-        // Use ALL messages for full context understanding (not just last 10)
-        conversationHistory = chatContext.map(m => ({
+        // Add conversation history
+        messages.push(...chatContext.slice(-30).map(m => ({
             role: m.fromMe ? 'assistant' : 'user',
             content: m.body
-        }));
+        })));
+    }
+    // Add current message
+    messages.push({ role: 'user', content: userMessage });
+
+    // 🧠 AI FALLBACK CHAIN: Groq → Gemini 1 → Gemini 2
+    const aiResponse = await getAIResponseWithFallback(messages, 0.7);
+
+    if (aiResponse.success) {
+        log(`AI responded via ${aiResponse.source} for ${chatId}: "${aiResponse.content.substring(0, 50)}..."`, 'info');
+        return aiResponse.content;
     }
 
-    // 🧠 AI FIRST: Try Groq with FULL context for intelligent understanding
-    if (BOT_CONFIG.useAI && isGroqEnabled()) {
-        const groqResponse = await getGroqResponseWithContext(userMessage, chatId, conversationHistory);
-        if (groqResponse) {
-            log(`AI responded for ${chatId}: "${groqResponse.substring(0, 50)}..."`, 'info');
-            return groqResponse;
+    // All AI failed — Use template fallback
+    log(`All AI services failed for ${chatId}, using template fallback`, 'warn');
+    return getTemplateResponse(userMessage);
+}
+
+// Template-based fallback response
+function getTemplateResponse(userMessage) {
+    const msg = userMessage.toLowerCase();
+
+    // Check keyword responses
+    for (const [category, data] of Object.entries(KEYWORD_RESPONSES)) {
+        if (data.keywords.some(k => msg.includes(k))) {
+            const responses = data.responses;
+            return responses[Math.floor(Math.random() * responses.length)];
         }
     }
 
-    // 100% AI-DRIVEN: Even fallback uses AI with simplified prompt
-    log(`Groq not available, using simplified AI response for ${chatId}`, 'warn');
-    return `Bhai, thoda busy hoon. 😅 Aap message repeat karein?\n\nMain eSIM plans ke bare mein help kar sakta hoon.`;
+    // Default responses
+    const defaults = [
+        `Bhai, main samajh gaya! ❤️ SimFly Pakistan mein aapka welcome hai!\n\nKya help chahiye bhai?\n\n📱 Plans dekhne hain?\n💳 Payment methods?\n🛒 Order karna hai?`,
+        `Han bhai! ❤️ Main yahan hoon help ke liye.\n\nAapko kya chahiye?\n\n• 500MB Trial - Rs. 130\n• 1GB Plan - Rs. 400\n• 5GB Family - Rs. 1500`,
+        `Assalam-o-Alaikum bhai! ❤️\n\nSimFly Pakistan ke eSIM plans:\n\n⚡ 500MB - Rs. 130\n🔥 1GB - Rs. 400 (Most Popular)\n💎 5GB - Rs. 1500\n\nKaunsa plan lena hai bhai? 👍`
+    ];
+
+    return defaults[Math.floor(Math.random() * defaults.length)];
 }
 
 // Enhanced Groq response with full context
@@ -3149,102 +3533,54 @@ async function startWhatsApp() {
                 return;
             }
 
-            // Payment Screenshot Verification
+            // ═══════════════════════════════════════════════════════
+            // 💳 ENHANCED PAYMENT VERIFICATION (Gemini AI First)
+            // ═══════════════════════════════════════════════════════
             let verification = null;
-            if (msg.hasMedia || body.toLowerCase().includes('payment') || body.toLowerCase().includes('screenshot')) {
-                verification = await verifyPaymentScreenshot(msg, chatId, body);
-                if (verification && verification.verified) {
-                    // Payment verified - send plan details immediately
-                    await addOrder({
-                        chatId,
-                        type: 'verified_order',
-                        planType: verification.planType,
-                        amount: verification.amount,
-                        paymentMethod: verification.paymentMethod,
-                        status: 'completed',
-                        confidence: verification.confidence
-                    });
+            if (msg.hasMedia) {
+                // First: Analyze with Gemini if it's payment screenshot or not
+                log(`Analyzing media from ${chatId}...`, 'info');
 
-                    // Send verification confirmation
-                    await msg.reply(`✅ *Payment Verified!*\n\n📦 Plan: ${verification.planType}\n💰 Amount: Rs. ${verification.amount}\n💳 Method: ${verification.paymentMethod || 'Not specified'}\n\n🎉 Sending your eSIM details now...`);
+                try {
+                    const media = await msg.downloadMedia();
+                    if (media && media.data) {
+                        // Analyze with Gemini - is this payment or something else?
+                        const analysis = await analyzeImageWithGemini(media.data, media.mimetype, chatId, body);
 
-                    // Send plan details immediately
-                    await new Promise(r => setTimeout(r, 1000));
-                    await sendPlanDetailsAfterVerification(chatId, verification.planType);
+                        if (analysis.type === 'payment' && analysis.confidence >= 50) {
+                            // This IS a payment screenshot
+                            log(`Payment screenshot confirmed by Gemini for ${chatId}`, 'info');
 
-                    // Notify admin about verified payment
-                    if (ADMIN_NUMBER) {
-                        try {
-                            const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
-                            await client.sendMessage(adminChat, `✅ *AUTO-VERIFIED PAYMENT*\n\nFrom: ${chatId}\nPlan: ${verification.planType}\nAmount: Rs. ${verification.amount}\nMethod: ${verification.paymentMethod || 'N/A'}\nConfidence: ${verification.confidence}%\n\nPlan details sent automatically! 🚀`);
-                        } catch (e) {}
-                    }
-                    return;
-                } else if (verification) {
-                    // Payment detected but not fully verified
-                    await addOrder({
-                        chatId,
-                        type: 'payment_screenshot',
-                        planType: verification.planType,
-                        status: 'pending_verification',
-                        confidence: verification.confidence
-                    });
+                            verification = await verifyPaymentScreenshot(msg, chatId, body);
 
-                    await msg.reply(`⏳ *Payment Received*\n\nPayment screenshot mil gaya bhai! ✅\n\n🔄 Verification in progress...\nPlan: ${verification.planType || 'Unknown'}\nConfidence: ${verification.confidence}%\n\nAdmin verify kar ke plan bhejega, 2-5 minutes mein! ⏱️`);
+                            // Say "verification in process" (NOT "received")
+                            await msg.reply(`⏳ *Verification in process bhai ❤️*\n\nAdmin check kar raha hai...\n\n2-5 minutes mein confirmation mil jayega!`);
 
-                    // Notify admin for manual verification with AI analysis
-                    if (ADMIN_NUMBER) {
-                        try {
-                            const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
-
-                            // Get chat context for AI analysis
-                            const chatContext = await getChatContext(chatId, msg);
-                            const chatSummary = await analyzeChatWithAI(chatId, chatContext);
-
-                            // Create detailed verification message with Gemini insights
-                            const geminiInfo = verification.geminiAnalysis
-                                ? `\n🤖 *Gemini AI Analysis:*\nType: ${verification.geminiAnalysis.type}\nConfidence: ${verification.geminiAnalysis.confidence}%${verification.geminiAnalysis.textExtracted ? `\nExtracted: "${verification.geminiAnalysis.textExtracted.substring(0, 100)}..."` : ''}`
-                                : '';
-
-                            const verificationMsg = `⏳ *PENDING VERIFICATION*${geminiInfo}\n\n👤 *Customer:* ${chatId}\n📦 *Plan:* ${verification.planType || 'Unknown'}\n💰 *Amount:* Rs. ${verification.amount || 'N/A'}\n💳 *Method:* ${verification.paymentMethod || 'Unknown'}\n📊 *Confidence:* ${verification.confidence}%\n\n📝 *Original Message:* ${body.slice(0, 100)}${body.length > 100 ? '...' : ''}\n\n📊 *Chat Analysis:*\n${chatSummary}\n\n✅ *Quick Actions:*\nReply to this message with:\n• "!approve" - Verify & send plan\n• "!reject [reason]" - Decline payment\n• "!check" - View full chat history`;
-
-                            let sentMsg;
-
-                            // Forward screenshot if available
-                            if (msg.hasMedia) {
-                                const media = await msg.downloadMedia();
-                                if (media) {
-                                    paymentScreenshots.set(chatId, {
-                                        mediaData: media.data,
-                                        mediaType: media.mimetype,
-                                        timestamp: Date.now(),
-                                        orderData: verification
-                                    });
-                                    sentMsg = await client.sendMessage(adminChat, media, { caption: verificationMsg });
-                                } else {
-                                    sentMsg = await client.sendMessage(adminChat, verificationMsg);
-                                }
-                            } else {
-                                sentMsg = await client.sendMessage(adminChat, verificationMsg);
+                            // Notify admin with user number
+                            if (ADMIN_NUMBER) {
+                                try {
+                                    const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                                    const number = chatId.replace(/\D/g, '').substring(0, 12);
+                                    await client.sendMessage(adminChat, `💰 *PAYMENT SCREENSHOT*\n\nNumber: ${number}\nChat: ${chatId}\n\nReply !approve to verify`);
+                                } catch (e) {}
                             }
+                            return;
 
-                            // Track verification message for reply handling
-                            if (sentMsg) {
-                                adminVerificationMessages.set(sentMsg.id.id, {
-                                    chatId: chatId,
-                                    planType: verification.planType,
-                                    amount: verification.amount,
-                                    timestamp: Date.now(),
-                                    originalMessageId: msg.id.id
-                                });
+                        } else {
+                            // NOT a payment screenshot - DON'T reply to customer
+                            log(`NOT a payment screenshot (${analysis.type}) - only notifying admin`, 'info');
+
+                            if (ADMIN_NUMBER) {
+                                try {
+                                    const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                                    await client.sendMessage(adminChat, `📸 *NON-PAYMENT IMAGE*\n\nFrom: ${chatId}\nType: ${analysis.type}\n\nNOT replying to customer`);
+                                } catch (e) {}
                             }
-
-                            log(`Payment verification sent to admin for ${chatId}`, 'info');
-                        } catch (e) {
-                            log('Error sending verification to admin: ' + e.message, 'error');
+                            return; // Don't reply to customer
                         }
                     }
-                    return;
+                } catch (e) {
+                    log('Media analysis error: ' + e.message, 'error');
                 }
             }
 
@@ -3374,11 +3710,114 @@ Bhai, screenshot mil gaya! Main analyze kar raha hoon... 🤔`);
                 return;
             }
 
-            // 👤 NATURAL CONVERSATION FLOW - Let AI handle everything
-            const isNew = await isNewUser(chatId);
+            // ═══════════════════════════════════════════════════════
+            // 🔍 DEEP CHAT ANALYSIS — Analyze before replying
+            // ═══════════════════════════════════════════════════════
+            const history = await getHistory(chatId);
+            const chatAnalysis = await analyzeChatBeforeReply(chatId, body, history, profile);
+
+            // ═══════════════════════════════════════════════════════
+            // 🎯 NEW CRM FLOW — Smart Customer Handling
+            // ═══════════════════════════════════════════════════════
+
+            // 1️⃣ RETURNING CUSTOMER — Ask about error first
+            if (chatAnalysis.isReturningCustomer && chatAnalysis.hasIssue) {
+                const greeting = getReturningCustomerGreeting(profile);
+                await msg.reply(greeting);
+                await saveMessage(chatId, { body: greeting, fromMe: true, time: Date.now() });
+
+                // Notify admin about returning customer with issue
+                if (ADMIN_NUMBER) {
+                    try {
+                        const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                        await client.sendMessage(adminChat, `🔄 *RETURNING CUSTOMER*\n\nCustomer: ${chatId}${profile.name ? ` (${profile.name})` : ''}\nIssue: ${chatAnalysis.returningCustomerIssue?.slice(0, 100)}\n\n_Bot asked about their error first_`);
+                    } catch (e) {}
+                }
+
+                // Still continue to AI for detailed response
+            }
+
+            // 2️⃣ NEW CUSTOMER — Button-like welcome with device options
+            else if (chatAnalysis.isNewCustomer && profile.messageCount <= 2) {
+                // Check if this is from FB/Instagram ad (simple heuristic)
+                const isFromAd = body.toLowerCase().includes('ad') ||
+                                body.toLowerCase().includes('facebook') ||
+                                body.toLowerCase().includes('instagram') ||
+                                body.toLowerCase().includes('promo');
+
+                const welcome = getButtonLikeWelcome(isFromAd);
+                await msg.reply(welcome);
+                await saveMessage(chatId, { body: welcome, fromMe: true, time: Date.now() });
+
+                // Notify admin about new customer
+                if (ADMIN_NUMBER) {
+                    try {
+                        const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                        await client.sendMessage(adminChat, `👋 *NEW CUSTOMER*\n\nFrom: ${chatId}\n${isFromAd ? '📢 *From FB/Instagram Ad*' : 'Organic'}\n\n_First message sent with device options_`);
+                    } catch (e) {}
+                }
+
+                // Schedule followup
+                scheduleFollowup(chatId, 'new_customer');
+                return; // Don't send AI response yet, let them reply with device
+            }
+
+            // 3️⃣ DEVICE MENTIONED — Check compatibility and suggest trial for JV
+            if (chatAnalysis.deviceMentioned && chatAnalysis.deviceCompatible) {
+                // Save device to profile
+                profile.device = chatAnalysis.deviceMentioned;
+
+                if (chatAnalysis.isJVDevice) {
+                    // JV device found — Suggest trial first
+                    const trialMessage = getJVTrialSuggestion(chatAnalysis.deviceMentioned);
+                    await msg.reply(trialMessage);
+                    await saveMessage(chatId, { body: trialMessage, fromMe: true, time: Date.now() });
+
+                    // Save to database
+                    await saveUserDevice(chatId, chatAnalysis.deviceMentioned, true, true);
+
+                    // Don't continue to regular flow yet
+                    scheduleFollowup(chatId, 'jv_trial_offered');
+                    return;
+                } else {
+                    // Normal device — Acknowledge compatibility
+                    const compatMessage = `✅ *${chatAnalysis.deviceMentioned} pe eSIM fully supported hai bhai!* ❤️\n\n*Best plans for you:*\n\n🔥 *1GB - Rs. 400* (Most Popular, 2 years)\n⚡ *500MB - Rs. 130* (Trial, 2 years)\n💎 *5GB - Rs. 1500* (4 devices, 2 years)\n\nKaunsa plan pasand hai bhai? 👍`;
+                    await msg.reply(compatMessage);
+                    await saveMessage(chatId, { body: compatMessage, fromMe: true, time: Date.now() });
+
+                    // Save to database
+                    await saveUserDevice(chatId, chatAnalysis.deviceMentioned, true, false);
+
+                    scheduleFollowup(chatId, 'device_compatible');
+                    return;
+                }
+            }
+
+            // 4️⃣ INTERNATIONAL eSIM MENTIONED
+            if (chatAnalysis.lastTopic === 'international_esim' ||
+                body.toLowerCase().includes('airalo') ||
+                body.toLowerCase().includes('maya') ||
+                body.toLowerCase().includes('saily') ||
+                body.toLowerCase().includes('other esim')) {
+                const explanation = getInternationalESIMExplanation();
+                await msg.reply(explanation);
+                await saveMessage(chatId, { body: explanation, fromMe: true, time: Date.now() });
+
+                // Then continue to AI for plan recommendation
+            }
+
+            // 5️⃣ NAME SHARED — Acknowledge and save
+            if (chatAnalysis.nameShared) {
+                const nameAck = `*${chatAnalysis.nameShared}*, nice name bhai! ❤️\n\nMain ${chatAnalysis.nameShared} bhai samajh ke help karonga! 👍`;
+                await msg.reply(nameAck);
+                await saveMessage(chatId, { body: nameAck, fromMe: true, time: Date.now() });
+            }
+
+            // 👤 REGULAR MESSAGE HANDLING — Use AI with context
+            const isNew = chatAnalysis.isNewCustomer;
             const userSession = getUserSession(chatId);
 
-            // Just track user session info for AI context, don't force flow
+            // Update session
             if (isNew && userSession.state === 'new') {
                 setUserSession(chatId, { state: 'active', step: 1, firstMessage: body });
             }
