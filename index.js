@@ -2314,8 +2314,7 @@ const BusinessAutomation = {
     }
 };
 
-// Initialize business automation
-BusinessAutomation.init();
+// Note: BusinessAutomation.init() moved to after State definition (line ~2950)
 
 // ============================================
 // PAYMENT VERIFICATION SYSTEM
@@ -2673,6 +2672,9 @@ const State = {
 // Initialize guides after State is defined
 loadCustomGuides();
 
+// Initialize business automation (now safe to call)
+BusinessAutomation.init();
+
 // ============================================
 // ADMIN COMMAND SYSTEM (100+ Commands)
 // ============================================
@@ -2939,8 +2941,13 @@ const AdminState = {
 function log(msg, type = 'info') {
     const time = new Date().toLocaleTimeString();
     const entry = { time, type, msg };
-    State.logs.unshift(entry);
-    if (State.logs.length > DB_CONFIG.maxLogs) State.logs.pop();
+
+    // Safe access to State - handles initialization order issues
+    if (typeof State !== 'undefined' && State && State.logs) {
+        State.logs.unshift(entry);
+        if (State.logs.length > DB_CONFIG.maxLogs) State.logs.pop();
+    }
+
     console.log(`[${time}] [${type.toUpperCase()}] ${msg}`);
 }
 
