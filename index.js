@@ -2315,6 +2315,11 @@ async function getPlanDetails(planType) {
 }
 
 async function sendPlanDetailsAfterVerification(chatId, planType) {
+    if (!client) {
+        log('Cannot send plan details - client not initialized', 'error');
+        return;
+    }
+
     const plan = await getPlanDetails(planType);
     if (!plan) return;
 
@@ -2783,10 +2788,11 @@ async function handleAdminCommand(msg, chatId, body) {
     }
 
     if (command === '!user-msg') {
+        if (!client) return '❌ Bot not ready. Please wait for WhatsApp connection.';
         const [number, ...messageParts] = args.split('|').map(s => s.trim());
         if (!number || !messageParts.length) return '❌ Usage: !user-msg <number> | <message>';
-        const chatId = `${number.replace(/\D/g, '')}@c.us`;
-        await client.sendMessage(chatId, messageParts.join(' '));
+        const targetChatId = `${number.replace(/\D/g, '')}@c.us`;
+        await client.sendMessage(targetChatId, messageParts.join(' '));
         return `✅ Message sent to ${number}`;
     }
 
@@ -3372,6 +3378,10 @@ async function handleAdminCommand(msg, chatId, body) {
 
 // Helper functions for admin commands
 async function broadcastMessage(message, type) {
+    if (!client) {
+        return '❌ Bot not ready. Please wait for WhatsApp connection.';
+    }
+
     const users = await getAllUsers();
     const targetUsers = type === 'active'
         ? users.filter(u => Date.now() - u.lastSeen < 86400000)
