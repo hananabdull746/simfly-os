@@ -1072,7 +1072,7 @@ async function addToVerificationQueue(chatId, analysis, mediaData, msgId) {
 
 // Admin notification with rich details
 async function notifyAdminAboutPayment(chatId, analysis, status) {
-    if (!ADMIN_NUMBER) return;
+    if (!ADMIN_NUMBER || !client) return;
 
     const number = chatId.replace(/\D/g, '').substring(0, 12);
     const amount = analysis.amount || 'Unknown';
@@ -1136,6 +1136,12 @@ Reply:
 
 // Customer notification based on verification status
 async function notifyCustomerAboutPayment(chatId, status, reason = '') {
+    // Safety check - client must be initialized
+    if (!client) {
+        log('Cannot notify customer - client not initialized', 'error');
+        return;
+    }
+
     let message = '';
 
     if (status === 'approved') {
@@ -4606,42 +4612,7 @@ async function startWhatsApp() {
                 profile.abandonedCartTime = Date.now();
             }
 
-            // 🖼️ HANDLE ISSUE SCREENSHOTS (analyzed by Gemini) - only if verification was done
-            if (verification && verification.type === 'issue') {
-                await msg.reply(`🆘 *Issue Screenshot Received*\n
-Bhai, screenshot mil gaya! Main analyze kar raha hoon... 🤔`);
-
-                try {
-                    // Extract text from image using Gemini
-                    const media = await msg.downloadMedia();
-                    if (media && media.data) {
-                        const analysis = await analyzeImageWithGemini(media.data, media.mimetype, chatId, body);
-
-                        // Resolve issue using Groq AI
-                        const solution = await resolveIssueWithAI(
-                            analysis.textExtracted || '',
-                            analysis.description || body,
-                            chatId
-                        );
-
-                        await msg.reply(`🔧 *Issue Analysis Complete*\n\n${solution}`);
-
-                        // Notify admin about resolved issue
-                        if (ADMIN_NUMBER) {
-                            try {
-                                const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
-                                await client.sendMessage(adminChat, `🤖 *AI RESOLVED ISSUE*\n\nCustomer: ${chatId}\nIssue: ${analysis.description || body}\n\nAI Solution Sent:\n${solution.substring(0, 200)}...`);
-                            } catch (e) {}
-                        }
-                    }
-                } catch (e) {
-                    log('Issue resolution error: ' + e.message, 'error');
-                    await msg.reply(`🆘 *Support Request Received*\n\nBhai, screenshot mil gaya hai. Admin jaldi hi help karega! 🙏`);
-                }
-                return;
-            }
-
-                    // ⏸️ CHECK IF BOT IS PAUSED (for non-admin users)
+            // ⏸️ CHECK IF BOT IS PAUSED (for non-admin users)
             const isPaused = State.botPaused;
             if (isPaused && !isAdmin && !isTempAdmin) {
                 log(`Bot PAUSED - skipping auto-reply for ${chatId}`, 'info');
