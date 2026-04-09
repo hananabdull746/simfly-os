@@ -649,98 +649,91 @@ const KEYWORD_RESPONSES = {
   greeting: {
     keywords: ['hi', 'hello', 'assalam', 'salam', 'hey', 'aoa', 'aslam', 'start'],
     responses: [
-      `Assalam-o-Alaikum bhai! ❤️ SimFly Pakistan mein khush amdeed!\n\nAapka device kaunsa hai?\n\n📱 *iPhone XS/XR*\n📱 *iPhone 11/12*\n📱 *iPhone 13/14*\n📱 *iPhone 15/16*\n📱 *Samsung S20+*\n📱 *Google Pixel 4+*\n\nModel batain taake compatibility check kar sakon! 👍`,
-      `Welcome bhai! ❤️ SimFly Pakistan here!\n\nAapka phone kaunsa model hai? Check kar ke batata hoon ke eSIM support karti hai ya nahi! 📱`,
-      `Salam bhai! ❤️\n\nKaunsa device use kar rahe hain? iPhone XS+ ya Samsung S20+ required hai for eSIM.\n\nAapka model batain! 👍`
+      `Assalam-o-Alaikum! 👋\nSimFly Pakistan mein khush aamdeed 🇵🇰\n\nAap kya karna chahte hain?\n1️⃣ Plans dekhna\n2️⃣ Device check\n3️⃣ eSIM info\n4️⃣ Buy karna`
     ]
   },
 
   plans: {
     keywords: ['plan', 'price', 'rate', 'kitne', 'cost', 'rs', 'pese', '500mb', '1gb', '5gb'],
     responses: [
-      `Hamare eSIM Plans:\n\n⚡ 500MB - Rs. 130\n🔥 1GB - Rs. 400 (Most Popular)\n💎 5GB - Rs. 1500 (4 devices)\n\nSab plans 2 saal ke liye! 📱\n\nKaunsa plan pasand hai bhai? 🤔`
+      `📦 SimFly Pakistan Plans:\n\n📦 STARTER: 500MB - Rs 130\n📦 STANDARD: 1GB - Rs 350\n📦 PRO: 5GB - Rs 1,250\n\n✅ Validity: 2 YEARS\n\nKaunsa plan pasand hai?`
     ]
   },
 
   payment: {
     keywords: ['payment', 'pay', 'jazzcash', 'easypaisa', 'sadapay', 'transfer', 'bhejo', 'screenshot'],
     responses: [
-      `Payment Methods:\n\n💳 JazzCash: 03466544374\n💳 EasyPaisa: 03456754090\n💳 SadaPay: 03116400376\n\nPayment karke screenshot bhej dein bhai! 📱 Jaldi process kar deta hoon! ⚡`
+      `💰 Payment Methods:\n\n💳 JazzCash: 03456754090\n💳 EasyPaisa: 03466544374\n💳 SadaPay: 03116400376\n\n📸 Screenshot bhej dein after payment!`
     ]
   },
 
   order: {
     keywords: ['buy', 'order', 'lena', 'purchase', 'kharid', 'chahiye', 'book'],
     responses: [
-      `Order karne ke liye bhai:\n\n1️⃣ Plan select karein\n2️⃣ Payment karein\n3️⃣ Screenshot bhej dein\n\nKaunsa plan lena hai? 🛒`,
-      `Bhai bas ye bata dein:\n- Kaunsa plan (500MB/1GB/5GB)?\n- Kis number pe chahiye?\n\nPayment confirm hote hi eSIM bana deta hoon! ⚡`
+      `Kaunsa plan lena hai?\n\n📦 STARTER: 500MB - Rs 130\n📦 STANDARD: 1GB - Rs 350\n📦 PRO: 5GB - Rs 1,250`
     ]
   },
 
   jv: {
     keywords: ['jv', 'japanese', 'work', 'chalega', 'compatible', 'support'],
     responses: [
-      `Han bhai! JV (Japanese Version) iPhone pe bilkul work karti hai! ✅\n\nBas dekh lain:\n📱 iPhone XS/XR se upar\n📱 Device Non-PTA\n\nKaunsa iPhone hai? 🤔`
+      `JV iPhone XS+ pe work karta hai ✅\n500MB trial recommended`
     ]
   },
 
   pta: {
     keywords: ['pta', 'registered'],
     responses: [
-      `Bhai, eSIM sirf Non-PTA devices pe work karti hai.\n\n❌ PTA registered = Nahi chalay gi\n✅ Non-PTA iPhone XS+ = Chalay gi\n\nAapka device Non-PTA hai? 🤔`
+      `eSIM sirf Non-PTA devices pe work karti hai\n\n❌ PTA registered = Nahi chalega\n✅ Non-PTA = Chalega`
     ]
   },
 
   install: {
     keywords: ['install', 'setup', 'activate', 'kaise', 'lagaye', 'qr'],
     responses: [
-      `eSIM install simple hai:\n\n1️⃣ QR code scan karein\n2️⃣ Settings > Cellular > Add eSIM\n3️⃣ Activate\n\nDone! ✅ Main guide bhi bhej deta hoon!`
+      `Guide bhejta hoon:\n\n1️⃣ App download\n2️⃣ Signup\n3️⃣ Code enter\n4️⃣ eSIM activate\n5️⃣ Data ON`
     ]
   },
 
   thanks: {
     keywords: ['thank', 'shukria', 'shukriya', 'jazak'],
     responses: [
-      `Koi baat nahi bhai! 😊 Allah Pak aapko khush rakhe! 🙏`,
-      `Welcome bhai! 🤗 Referral se order karwa sakte hain, commission milta hai! 💰`
+      `Koi baat nahi! 😊`
     ]
   },
 
   bye: {
     keywords: ['bye', 'allah hafiz', 'khuda hafiz', 'alvida'],
     responses: [
-      `Allah Hafiz bhai! 🙏 Kabhi bhi help chahiye ho, message kar dein! 📱`
+      `Allah Hafiz! 👋`
     ]
   },
 
   help: {
     keywords: ['help', 'madad', 'support', 'guide', 'kya', 'how'],
     responses: [
-      `Main aapki kya help kar sakta hoon? 🤔\n\n📱 Plans dekhne hain?\n💳 Payment methods?\n🛒 Order karna hai?\n❓ Koi aur sawal?`
+      `Main kya help kar sakta hoon?\n\n1️⃣ Plans dekhna\n2️⃣ Device check\n3️⃣ eSIM info\n4️⃣ Buy karna`
     ]
   },
 
   human: {
     keywords: ['human', 'agent', 'real', 'person', 'admin'],
     responses: [
-      `Bhai, main hi human hoon SimFly ka sales assistant! 😊\n\nKya chahiye bhai? Bata dein! 👍`
+      `Main check karke batata hoon`
     ]
   },
 
   device: {
     keywords: ['iphone', 'samsung', 'pixel', 'mobile', 'phone', 'device', 'model', 'xs', 'xr', '11', '12', '13', '14', '15'],
     responses: [
-      `✅ *SUPPORTED DEVICES:*\n\n📱 iPhone XS/XR and above\n📱 iPhone 11/12/13/14/15/16\n📱 Samsung S20/S21/S22/S23/S24\n📱 Google Pixel 4+\n\n⚠️ *Non-PTA required!*\n⚠️ *JV iPhone XS+ pe work karti hai (500MB trial recommended)*\n\nAapka kaunsa model hai bhai? ❤️`,
-      `Bhai device check kar lein:\n\n✅ iPhone XS/XR se upar\n✅ Samsung S20+\n✅ Pixel 4+\n✅ Non-PTA hona chahiye\n\nAapka model batain! ❤️`
+      `✅ Supported:\n📱 iPhone XS+\n📱 Samsung S20+\n📱 Pixel 3+\n📱 Fold/Flip\n\n❌ Not supported:\n🚫 PTA-approved\n🚫 Budget Android\n🚫 iPhone X or below`
     ]
   },
 
   returning: {
     keywords: ['problem', 'issue', 'masla', 'error', 'nahi chal', 'not working', 'stuck', 'failed', 'help'],
     responses: [
-      `Welcome back bhai! ❤️ Kaunsa error aa raha hai? Bataein detail mein taake help kar sakon! 🙏`,
-      `Bhai, kya issue aa raha hai? ❤️ Detail mein batain:\n\n• Phone model?\n• Konsa step pe problem hai?\n• Screenshot bhejein agar ho sake\n\nHelp kar sakta hoon! 👍`,
-      `Issue samajh sakta hoon bhai! ❤️\n\nKaunsa error aa raha hai?\n\n1️⃣ QR scan nahi ho raha?\n2️⃣ Activation fail ho raha?\n3️⃣ Signal nahi aa rahe?\n4️⃣ Kuch aur?\n\nBataein! 🙏`
+      `Main check karke batata hoon. Detail bataein kya hua?`
     ]
   }
 };
