@@ -387,6 +387,7 @@ const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './data/session' }),
   puppeteer: {
     headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || require('puppeteer').executablePath(),
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--no-zygote']
   }
 });
