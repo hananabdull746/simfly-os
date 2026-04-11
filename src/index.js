@@ -9,7 +9,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
 const { migrate, closeConnection, CustomerQueries, ConversationQueries, OrderQueries, StockQueries, PaymentQueries, AnalyticsQueries } = require('./database');
-const { logger, generateResponse, detectIntent, detectIntentLocal, analyzeScreenshot, verifyPayment, initScheduler, setQR, clearQR, setStatus, startWebServer, syncExistingChats } = require('./services');
+const { logger, generateResponse, detectIntent, detectIntentLocal, analyzeScreenshot, verifyPayment, initScheduler, setQR, clearQR, setStatus, startWebServer, syncExistingChats, logIssue, resolveIssue, getIssues, clearOldIssues } = require('./services');
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -33,11 +33,13 @@ const PAYMENT_METHODS = {
 
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught Exception', { error: err.message, stack: err.stack });
+  logIssue('CRITICAL', `Uncaught Exception: ${err.message}`, { stack: err.stack });
   setTimeout(() => process.exit(1), 1000);
 });
 
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled Rejection', { reason });
+  logIssue('ERROR', `Unhandled Rejection: ${reason}`, {});
 });
 
 process.on('SIGTERM', shutdown);
@@ -159,6 +161,7 @@ async function handleImage(message, client, customer) {
 
   } catch (error) {
     console.error('Image handling error:', error);
+    logIssue('ERROR', 'Image handling failed', { error: error.message, customer: customer.number });
     await sendMessage(client, message.from, 'Bhai screenshot process nahi ho rahi — dobara bhejo ya text se batao');
   }
 }
@@ -341,7 +344,18 @@ async function handleAdminCommand(text, number) {
       const stats = await OrderQueries.getStats(7);
       return `*Stats (7 days)*\n📦 Total: ${stats.total_orders}\n✅ Delivered: ${stats.delivered}\n💰 Revenue: Rs ${stats.revenue}`;
     }
-    case 'help': return `*Admin Commands*\n/orders, /stock, /customer, /ban, /unban, /pause, /resume, /stats`;
+    case 'issues': {
+      const issueList = getIssues({ resolved: false });
+      if (issueList.length === 0) return '✅ No unresolved issues';
+      return `*Issues (${issueList.length})*\n\n${issueList.slice(0, 5).map(i => `🔴 ${i.id}\n${i.type}: ${i.message.substring(0, 50)}`).join('\n\n')}`;
+    }
+    case 'resolve': {
+      const [issueId] = args;
+      if (!issueId) return 'Usage: /resolve [issue_id]';
+      const resolved = resolveIssue(issueId);
+      return resolved ? `✅ Resolved ${issueId}` : `❌ Issue not found`;
+    }
+    case 'help': return `*Admin Commands*\n/orders, /stock, /customer, /ban, /unban, /pause, /resume, /stats, /issues, /resolve`;
     default: return `Unknown: /${command}. Type /help`;
   }
 }
@@ -395,6 +409,9 @@ client.on('ready', async () => {
   await syncExistingChats(client);
   initScheduler(client);
   await AnalyticsQueries.increment('new_customers', 0);
+
+  // Clear old issues daily
+  setInterval(() => clearOldIssues(7), 24 * 60 * 60 * 1000);
 });
 
 client.on('message', handleMessage);

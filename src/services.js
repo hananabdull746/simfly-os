@@ -1,5 +1,5 @@
 /**
- * Services - AI, Vision, Scheduler, WebServer, StartupSync
+ * Services - AI, Vision, Scheduler, WebServer, StartupSync, IssueHandler
  * All services in one file
  */
 
@@ -9,12 +9,6 @@ const express = require('express');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const sharp = require('sharp');
-const fs = require('fs');
-const path = require('path');
-const {
-  FollowUpQueries, CustomerQueries, OrderQueries,
-  AnalyticsQueries, StockQueries, ConversationQueries
-} = require('./database');
 
 // ═══════════════════════════════════════════════════════════════
 // LOGGER (Simple)
@@ -168,7 +162,7 @@ async function analyzeScreenshot(imageBuffer, expectedAmount = null) {
     const optimizedBuffer = await optimizeImage(imageBuffer);
     const imageHash = calculateHash(optimizedBuffer);
     const base64Image = optimizedBuffer.toString('base64');
-    const prompt = `Analyze this payment screenshot. Reply ONLY in JSON: {"is_payment_screenshot": true/false, "app": "JazzCash/EasyPaisa/SadaPay/Unknown", "amount": number or null, "recipient_number": "string", "status": "Successful/Failed/Pending", "timestamp": "string", "suspicious": true/false, "confidence": 0.0 to 1.0}`;
+    const prompt = 'Analyze this payment screenshot. Reply ONLY in JSON: {"is_payment_screenshot": true/false, "app": "JazzCash/EasyPaisa/SadaPay/Unknown", "amount": number or null, "recipient_number": "string", "status": "Successful/Failed/Pending", "timestamp": "string", "suspicious": true/false, "confidence": 0.0 to 1.0}';
 
     const apiKey = getNextKey();
     if (!apiKey) throw new Error('No Gemini API keys available');
@@ -343,8 +337,64 @@ async function syncExistingChats(client) {
   } catch (err) { logger.error('Chat sync failed', { error: err.message }); }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ISSUE HANDLER
+// ═══════════════════════════════════════════════════════════════
+
+const issues = [];
+
+function logIssue(type, message, context = {}) {
+  const issue = {
+    id: `ISS-${Date.now()}`,
+    type,
+    message,
+    context,
+    timestamp: new Date().toISOString(),
+    resolved: false
+  };
+  issues.push(issue);
+  logger.error(`Issue logged: ${type}`, { message, context });
+
+  // Send to admin if critical
+  if (type === 'CRITICAL' && whatsappClient && process.env.ADMIN_NUMBER) {
+    const alert = `🚨 *CRITICAL ISSUE*\n\nID: ${issue.id}\nType: ${type}\nMessage: ${message}\nTime: ${issue.timestamp}`;
+    whatsappClient.sendMessage(process.env.ADMIN_NUMBER, alert).catch(() => {});
+  }
+
+  return issue.id;
+}
+
+function resolveIssue(issueId) {
+  const issue = issues.find(i => i.id === issueId);
+  if (issue) {
+    issue.resolved = true;
+    issue.resolvedAt = new Date().toISOString();
+    return true;
+  }
+  return false;
+}
+
+function getIssues(filter = {}) {
+  let result = issues;
+  if (filter.resolved !== undefined) result = result.filter(i => i.resolved === filter.resolved);
+  if (filter.type) result = result.filter(i => i.type === filter.type);
+  return result;
+}
+
+function clearOldIssues(days = 7) {
+  const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+  const before = issues.length;
+  for (let i = issues.length - 1; i >= 0; i--) {
+    if (new Date(issues[i].timestamp).getTime() < cutoff && issues[i].resolved) {
+      issues.splice(i, 1);
+    }
+  }
+  logger.info('Cleared old issues', { cleared: before - issues.length });
+}
+
 module.exports = {
   logger, generateResponse, detectIntent, detectIntentLocal,
   analyzeScreenshot, verifyPayment, calculateHash,
-  initScheduler, setQR, clearQR, setStatus, startWebServer, syncExistingChats
+  initScheduler, setQR, clearQR, setStatus, startWebServer, syncExistingChats,
+  logIssue, resolveIssue, getIssues, clearOldIssues
 };
