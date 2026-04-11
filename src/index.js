@@ -5,7 +5,6 @@
 
 require('dotenv').config();
 
-const fs = require('fs');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
@@ -384,61 +383,58 @@ migrate().then(() => {
   process.exit(1);
 });
 
-function getChromePath() {
-  const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
-  if (envPath && fs.existsSync(envPath)) return envPath;
-  try {
-    return require('puppeteer').executablePath();
-  } catch {
-    return '/usr/bin/chromium';
-  }
+async function initializeBot() {
+  const chromium = require('@sparticuz/chromium');
+  const chromePath = await chromium.executablePath();
+
+  const client = new Client({
+    authStrategy: new LocalAuth({ dataPath: './data/session' }),
+    puppeteer: {
+      headless: chromium.headless,
+      executablePath: chromePath,
+      args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    }
+  });
+
+  client.on('qr', (qr) => {
+    logger.info('QR Code received');
+    qrcode.generate(qr, { small: true });
+    setQR(qr);
+  });
+
+  client.on('authenticated', () => {
+    logger.info('WhatsApp authenticated');
+    clearQR();
+    setStatus('AUTHENTICATED');
+  });
+
+  client.on('ready', async () => {
+    logger.info('🚀 SimFly OS is ready!');
+    setStatus('READY');
+    await syncExistingChats(client);
+    initScheduler(client);
+    await AnalyticsQueries.increment('new_customers', 0);
+
+    // Clear old issues daily
+    setInterval(() => clearOldIssues(7), 24 * 60 * 60 * 1000);
+  });
+
+  client.on('message', handleMessage);
+
+  client.on('disconnected', () => {
+    logger.warn('WhatsApp disconnected');
+    setStatus('DISCONNECTED');
+  });
+
+  startWebServer();
+
+  logger.info('Starting WhatsApp client...');
+  await client.initialize();
+
+  return client;
 }
 
-const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: './data/session' }),
-  puppeteer: {
-    headless: true,
-    executablePath: getChromePath(),
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--no-zygote']
-  }
-});
-
-client.on('qr', (qr) => {
-  logger.info('QR Code received');
-  qrcode.generate(qr, { small: true });
-  setQR(qr);
-});
-
-client.on('authenticated', () => {
-  logger.info('WhatsApp authenticated');
-  clearQR();
-  setStatus('AUTHENTICATED');
-});
-
-client.on('ready', async () => {
-  logger.info('🚀 SimFly OS is ready!');
-  setStatus('READY');
-  await syncExistingChats(client);
-  initScheduler(client);
-  await AnalyticsQueries.increment('new_customers', 0);
-
-  // Clear old issues daily
-  setInterval(() => clearOldIssues(7), 24 * 60 * 60 * 1000);
-});
-
-client.on('message', handleMessage);
-
-client.on('disconnected', () => {
-  logger.warn('WhatsApp disconnected');
-  setStatus('DISCONNECTED');
-});
-
-startWebServer();
-
-logger.info('Starting WhatsApp client...');
-client.initialize().catch(err => {
+const clientPromise = initializeBot().catch(err => {
   logger.error('Failed to initialize', { error: err.message });
   process.exit(1);
 });
-
-module.exports = { client };
