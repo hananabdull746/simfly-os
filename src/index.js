@@ -5,6 +5,7 @@
 
 require('dotenv').config();
 
+const fs = require('fs');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
@@ -383,11 +384,21 @@ migrate().then(() => {
   process.exit(1);
 });
 
+function getChromePath() {
+  const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (envPath && fs.existsSync(envPath)) return envPath;
+  try {
+    return require('puppeteer').executablePath();
+  } catch {
+    return '/usr/bin/chromium';
+  }
+}
+
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './data/session' }),
   puppeteer: {
     headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || require('puppeteer').executablePath(),
+    executablePath: getChromePath(),
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--no-zygote']
   }
 });
