@@ -23,11 +23,20 @@ db.migrate().then(() => sv.logger.info('Database ready')).catch(err => {
 });
 
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: './data/session' }),
+  authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
   puppeteer: {
-    headless: true,
-    executablePath: '/usr/bin/google-chrome-stable',
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process']
+    headless: 'new',
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',
+      '--disable-gpu'
+    ]
   }
 });
 
@@ -318,7 +327,10 @@ function isAdmin(number) {
 }
 
 sv.startWebServer();
-client.initialize().catch(err => {
-  sv.logger.error('Init failed', { error: err.message });
-  process.exit(1);
-});
+
+setTimeout(() => {
+  client.initialize().catch(err => {
+    sv.logger.error('Init failed', { error: err.message });
+    process.exit(1);
+  });
+}, 3000);
