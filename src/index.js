@@ -1,7 +1,4 @@
-require('dotenv').config();
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
-
 const db = require('./database');
 const sv = require('./services');
 
@@ -17,12 +14,10 @@ const PAYMENT_METHODS = {
   sadapay: { number: '03116400376', name: 'SadaPay' }
 };
 
-sv.logger.info('Initializing SimFly OS v5.0...');
+sv.logger.info('Starting SimFly OS v5.0...');
 sv.setStatus('INITIALIZING');
 
-db.migrate().then(() => {
-  sv.logger.info('Database ready');
-}).catch(err => {
+db.migrate().then(() => sv.logger.info('Database ready')).catch(err => {
   sv.logger.error('Database failed', { error: err.message });
   process.exit(1);
 });
@@ -38,7 +33,6 @@ const client = new Client({
 
 client.on('qr', (qr) => {
   sv.logger.info('QR received');
-  qrcode.generate(qr, { small: true });
   sv.setQR(qr);
 });
 
@@ -48,7 +42,7 @@ client.on('authenticated', () => {
   sv.setStatus('AUTHENTICATED');
 });
 
-client.on('ready', async () => {
+client.on('ready', () => {
   sv.logger.info('Bot ready!');
   sv.setStatus('READY');
   sv.initScheduler(client);
@@ -116,8 +110,8 @@ async function handleMessage(text, intent, customer) {
     case 'BYE': return 'Allah Hafiz bhai! 👋';
     default:
       const history = await db.ConversationQueries.getRecent(customer.number, 5);
-      const ai = await sv.generateResponse(text, history, { stage: customer.stage });
-      return ai || `Bhai samajh nahi aaya 😅\n\n1️⃣ Plans dekhna\n2️⃣ eSIM lena\n3️⃣ Help chahiye`;
+      const ai = await sv.generateResponse(text, history);
+      return ai || `Bhai samajh nahi aaya 😅\n\n1️⃣ Plans dekhna\n2️⃣ eSIM lena\n3️⃣ Help`;
   }
 }
 
@@ -142,22 +136,22 @@ async function handleImage(message, customer) {
     const analysis = await sv.analyzeScreenshot(imageBuffer, plan.price);
     const existing = await db.PaymentQueries.getByHash(analysis.hash);
     if (existing) {
-      await client.sendMessage(message.from, 'Yeh screenshot pehle use ho chuki hai — fresh payment bhejo');
+      await client.sendMessage(message.from, 'Yeh screenshot pehle use ho chuki hai');
       return;
     }
 
     await db.PaymentQueries.log(customer.number, pendingOrder.order_id, analysis.hash, plan.price);
-    const verification = sv.verifyPayment(analysis, plan.price, null);
+    const verification = sv.verifyPayment(analysis, plan.price);
     if (!verification.valid) {
       await client.sendMessage(message.from, verification.message);
       return;
     }
 
     await db.PaymentQueries.verify(analysis.hash, analysis.amount, analysis.recipientNumber, analysis.status);
-    await db.OrderQueries.confirm(pendingOrder.order_id, plan.code, 'eSIM');
+    await db.OrderQueries.confirm(pendingOrder.order_id, plan.code);
     await db.CustomerQueries.updateStage(customer.number, 'PAYMENT_SENT');
 
-    const delivery = await deliverESIM(customer, plan, pendingOrder.plan);
+    const delivery = await deliverESIM(plan, pendingOrder.plan);
     await client.sendMessage(message.from, delivery);
 
     await db.OrderQueries.deliver(pendingOrder.order_id);
@@ -166,56 +160,55 @@ async function handleImage(message, customer) {
 
   } catch (err) {
     sv.logger.error('Image error', { error: err.message });
-    await client.sendMessage(message.from, 'Screenshot process nahi ho rahi — dobara bhejo');
+    await client.sendMessage(message.from, 'Screenshot process nahi ho rahi');
   }
 }
 
 function welcome(customer) {
   if (customer.total_orders > 0) {
-    return `Welcome back bhai! 😊\n\nKya chahiye aaj?\n1️⃣ Naya plan\n2️⃣ Support`;
+    return `Welcome back! 😊\n\nKya chahiye?\n1️⃣ Naya plan\n2️⃣ Support`;
   }
-  return `Assalam o Alaikum! 👋 SimFly Pakistan! 🇵🇰\n\n🟢 STARTER — 500MB | Rs 130\n🔵 STANDARD — 1GB | Rs 350\n🟣 PRO — 5GB | Rs 1,250\n\nKaun sa plan pasand hai?`;
+  return `Assalam o Alaikum! 👋 SimFly Pakistan! 🇵🇰\n\n🟢 500MB — Rs 130\n🔵 1GB — Rs 350\n🟣 5GB — Rs 1,250\n\nKaun sa plan?`;
 }
 
 function showPlans() {
-  return `📦 SimFly Plans:\n\n🟢 500MB — Rs 130 | 2 Saal\n🔵 1GB — Rs 350 | 2 Saal\n🟣 5GB — Rs 1,250 | 2 Saal\n\nKaunsa lena hai?`;
+  return `📦 SimFly Plans:\n\n🟢 500MB — Rs 130 | 2 Saal\n🔵 1GB — Rs 350 | 2 Saal\n🟣 5GB — Rs 1,250 | 2 Saal\n\nKaunsa?`;
 }
 
 function planDetails(text) {
   const lower = text.toLowerCase();
   let planId = null;
-  if (lower.includes('500') || lower.includes('130') || lower.includes('starter')) planId = '500MB';
-  else if (lower.includes('1gb') || lower.includes('350') || lower.includes('standard')) planId = '1GB';
-  else if (lower.includes('5gb') || lower.includes('1250') || lower.includes('pro')) planId = '5GB';
+  if (/500|130|starter/.test(lower)) planId = '500MB';
+  else if (/1gb|350|standard/.test(lower)) planId = '1GB';
+  else if (/5gb|1250|pro/.test(lower)) planId = '5GB';
 
   if (!planId) return showPlans();
   const plan = PLANS[planId];
-  return `${plan.icon} *${plan.name}*\n\n📊 Data: ${plan.data}\n💰 Price: Rs ${plan.price}\n⏱️ Validity: 2 Saal\n\nLena hai?`;
+  return `${plan.icon} *${plan.name}*\n\n📊 ${plan.data}\n💰 Rs ${plan.price}\n⏱️ 2 Saal\n\nLena hai?`;
 }
 
 function checkDevice(text, customer) {
   const device = text.match(/(iphone\s*\d+|samsung\s*\w+|pixel\s*\d+)/i)?.[0];
 
   if (!device) {
-    return `Phone model kya hai?\n\n✅ Supported:\n📱 iPhone XS/XR/11+\n📱 Samsung S20+\n📱 Pixel 3+`;
+    return `Phone model?\n\n✅ iPhone XS/11+\n✅ Samsung S20+\n✅ Pixel 3+`;
   }
 
   const dl = device.toLowerCase();
   let compatible = false;
-
-  if (dl.includes('iphone')) {
+  if (/iphone/.test(dl) && /xs|xr|\d+/.test(dl)) {
     const m = dl.match(/(\d+|xs|xr)/)?.[0];
     if (m === 'xs' || m === 'xr' || parseInt(m) >= 11) compatible = true;
   }
-  if (dl.includes('samsung') && dl.match(/s(\d+)/)?.[1] >= 20) compatible = true;
-  if (dl.includes('pixel') && dl.match(/(\d+)/)?.[1] >= 3) compatible = true;
+  if (/samsung/.test(dl) && dl.match(/s(\d+)/)?.[1] >= 20) compatible = true;
+  if (/pixel/.test(dl) && dl.match(/(\d+)/)?.[1] >= 3) compatible = true;
 
   db.CustomerQueries.update(customer.number, { device_model: device, is_compatible: compatible ? 1 : 0 });
 
   if (compatible) {
-    return `✅ *${device}* supported!\n\nKaunsa plan?\n🟢 500MB - Rs 130\n🔵 1GB - Rs 350\n🟣 5GB - Rs 1,250`;
+    return `✅ *${device}* supported!\n\nKaunsa plan?\n🟢 500MB\n🔵 1GB\n🟣 5GB`;
   }
-  return `❌ *${device}* not supported\n\n✅ iPhone XS+/Samsung S20+/Pixel 3+`;
+  return `❌ *${device}* not supported\n\n✅ iPhone XS+/S20+/Pixel 3+`;
 }
 
 async function startOrder(customer) {
@@ -230,9 +223,9 @@ async function continueOrder(text, customer) {
   const lower = text.toLowerCase().trim();
   let selectedPlan = null;
 
-  if (lower.includes('1') || lower.includes('500') || lower.includes('130')) selectedPlan = '500MB';
-  else if (lower.includes('2') || lower.includes('1gb') || lower.includes('350')) selectedPlan = '1GB';
-  else if (lower.includes('3') || lower.includes('5gb') || lower.includes('1250')) selectedPlan = '5GB';
+  if (/1|500|130/.test(lower)) selectedPlan = '500MB';
+  else if (/2|1gb|350/.test(lower)) selectedPlan = '1GB';
+  else if (/3|5gb|1250/.test(lower)) selectedPlan = '5GB';
 
   if (!selectedPlan) {
     return `1, 2, ya 3 batao:\n1️⃣ 500MB - Rs 130\n2️⃣ 1GB - Rs 350\n3️⃣ 5GB - Rs 1,250`;
@@ -241,7 +234,7 @@ async function continueOrder(text, customer) {
   const plan = PLANS[selectedPlan];
   const stock = await db.StockQueries.get(selectedPlan);
   if (!stock || stock.quantity <= 0) {
-    return `${plan.name} out of stock 😔\n\nAur koi plan?`;
+    return `${plan.name} out of stock 😔`;
   }
 
   const orderId = `SF${Date.now().toString(36).toUpperCase()}`;
@@ -255,30 +248,30 @@ async function continueOrder(text, customer) {
   return `✅ *${plan.name}*\n\n📦 ${plan.data}\n💰 Rs ${plan.price}\n\nPayment:\n💚 JazzCash: ${PAYMENT_METHODS.jazzcash.number}\n💙 EasyPaisa: ${PAYMENT_METHODS.easypaisa.number}\n💜 SadaPay: ${PAYMENT_METHODS.sadapay.number}\n\nScreenshot bhejo 📸`;
 }
 
-async function deliverESIM(customer, plan, planKey) {
-  const guide = `━━━━━━━━━━━━━━━━━━━\n📱 *eSIM DETAILS*\n━━━━━━━━━━━━━━━━━━━\n📦 ${plan.name} | ${plan.data}\n🎁 Code: *${plan.code}*\n\n📲 *ACTIVATION*\n1️⃣ Settings → Mobile Data\n2️⃣ Add eSIM\n3️⃣ Code: *${plan.code}*\n4️⃣ Data Roaming ON ✅`;
+async function deliverESIM(plan, planKey) {
+  const guide = `━━━━━━━━━━━━━━━\n📱 *eSIM*\n━━━━━━━━━━━━━━━\n📦 ${plan.name} | ${plan.data}\n🎁 Code: *${plan.code}*\n\n📲 Activation:\n1️⃣ Settings → Mobile Data\n2️⃣ Add eSIM\n3️⃣ Code: *${plan.code}*\n4️⃣ Data Roaming ON ✅`;
 
   if (plan.auto) {
     await db.StockQueries.decrement(planKey);
     return `🎉 *Verified!* ✅\n\n${guide}`;
   }
-  return `🎉 *Verified!* ✅\n\nAdmin notify kar diya — 5-10 min mein details mil jayengi 📧`;
+  return `🎉 *Verified!* ✅\n\nAdmin notify kar diya — details 5-10 min mein 📧`;
 }
 
 function handleSupport(text, customer) {
   const lower = text.toLowerCase();
-  if (lower.includes('activate') || lower.includes('chalu')) {
-    return `Try karo:\n1️⃣ Settings → Mobile Data\n2️⃣ Add eSIM\n3️⃣ Code enter karo\n4️⃣ Data Roaming ON ✅`;
+  if (/activate|chalu/.test(lower)) {
+    return `Try:\n1️⃣ Settings → Mobile Data\n2️⃣ Add eSIM\n3️⃣ Code enter\n4️⃣ Data Roaming ON ✅`;
   }
-  if (lower.includes('slow') || lower.includes('speed')) {
-    return `Check karo:\n• Signal strength?\n• Data Roaming ON?\n• Flight mode on/off?`;
+  if (/slow|speed/.test(lower)) {
+    return `Check:\n• Signal strength?\n• Data Roaming ON?\n• Flight mode on/off?`;
   }
-  return `Phone: ${customer.device_model || 'Unknown'}\nLast: ${customer.last_plan || 'None'}\n\nExact problem batao?`;
+  return `Phone: ${customer.device_model || 'Unknown'}\nLast: ${customer.last_plan || 'None'}\n\nProblem batao?`;
 }
 
 async function handleRefund(customer) {
   const pending = await db.OrderQueries.getPending(customer.number);
-  if (!pending) return `Koi pending order nahi hai.`;
+  if (!pending) return `Koi pending order nahi.`;
   if (pending.status === 'DELIVERED') return `eSIM deliver ho chuki hai. Refund nahi possible.`;
   return `Refund request note kar li. Admin 24-48 hours mein response dega 🙏`;
 }
@@ -291,31 +284,22 @@ async function handleAdminCommand(text) {
   switch (cmd) {
     case 'orders': {
       const orders = await db.OrderQueries.getByStatus('PENDING', 20);
-      if (orders.length === 0) return 'No pending orders';
-      return `*Pending (${orders.length})*\n\n${orders.map(o => `📦 ${o.order_id} | ${o.plan} | Rs ${o.amount}`).join('\n')}`;
+      return orders.length === 0 ? 'No pending orders' : `*Pending (${orders.length})*\n\n${orders.map(o => `📦 ${o.order_id} | ${o.plan}`).join('\n')}`;
     }
     case 'stock': {
       if (args.length === 0) {
         const stocks = await db.StockQueries.getAll();
         return `*Stock*\n\n${stocks.map(s => `📦 ${s.plan}: ${s.quantity}`).join('\n')}`;
       }
-      const [plan, qty] = args;
-      await db.StockQueries.update(plan.toUpperCase(), parseInt(qty));
-      return `✅ ${plan} = ${qty}`;
+      await db.StockQueries.update(args[0].toUpperCase(), parseInt(args[1]));
+      return `✅ ${args[0]} = ${args[1]}`;
     }
     case 'customer': {
       const customer = await db.CustomerQueries.get(args[0]);
-      if (!customer) return 'Not found';
-      return `*Customer*\n📱 ${customer.number}\n👤 ${customer.name || 'N/A'}\n📦 ${customer.total_orders} orders\n💰 Rs ${customer.total_spent}`;
+      return customer ? `*Customer*\n📱 ${customer.number}\n👤 ${customer.name || 'N/A'}\n📦 ${customer.total_orders} orders` : 'Not found';
     }
-    case 'ban': {
-      await db.CustomerQueries.update(args[0], { banned: 1 });
-      return `🚫 Banned ${args[0]}`;
-    }
-    case 'unban': {
-      await db.CustomerQueries.update(args[0], { banned: 0 });
-      return `✅ Unbanned ${args[0]}`;
-    }
+    case 'ban': { await db.CustomerQueries.update(args[0], { banned: 1 }); return `🚫 Banned ${args[0]}`; }
+    case 'unban': { await db.CustomerQueries.update(args[0], { banned: 0 }); return `✅ Unbanned ${args[0]}`; }
     case 'stats': {
       const stats = await db.OrderQueries.getStats(7);
       return `*Stats (7d)*\n📦 Total: ${stats.total_orders}\n✅ Delivered: ${stats.delivered}\n💰 Revenue: Rs ${stats.revenue}`;
