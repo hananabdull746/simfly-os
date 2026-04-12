@@ -32,25 +32,19 @@ const fs = require('fs');
 
 function findChrome() {
   const paths = [
-    process.env.PUPPETEER_EXECUTABLE_PATH,
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
     '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/app/.cache/puppeteer/chrome/linux-*/chrome-linux64/chrome'
+    '/usr/bin/google-chrome'
   ];
   for (const p of paths) {
-    if (p && fs.existsSync(p)) return p;
+    if (fs.existsSync(p)) return p;
   }
   return null;
 }
 
-const chromePath = findChrome();
-if (!chromePath) {
-  sv.logger.error('❌ Chrome not found in any standard location');
-  process.exit(1);
-}
-sv.logger.info(`✅ Chrome found at: ${chromePath}`);
+const chromePath = findChrome() || '/usr/bin/chromium';
+sv.logger.info(`🌐 Using Chrome at: ${chromePath}`);
 
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),

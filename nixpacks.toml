@@ -1,8 +1,12 @@
 [phases.setup]
 nixPkgs = ['nodejs_18']
+aptPkgs = ['chromium', 'chromium-driver']
 
 [phases.build]
 cmds = ['npm install']
 
 [start]
 cmd = 'node src/index.js'
+
+[variables]
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
