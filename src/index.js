@@ -32,19 +32,27 @@ const fs = require('fs');
 
 function findChrome() {
   const paths = [
-    '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome'
+    '/usr/bin/chromium',
+    '/usr/lib/chromium/chromium',
+    '/usr/bin/google-chrome-stable'
   ];
   for (const p of paths) {
     if (fs.existsSync(p)) return p;
   }
-  return null;
+  try {
+    const { execSync } = require('child_process');
+    return execSync('which chromium-browser || which chromium || which chrome', { encoding: 'utf8' }).trim();
+  } catch {}
+  return '/usr/bin/chromium-browser';
 }
 
-const chromePath = findChrome() || '/usr/bin/chromium';
+const chromePath = findChrome();
 sv.logger.info(`🌐 Using Chrome at: ${chromePath}`);
+
+if (!fs.existsSync(chromePath)) {
+  sv.logger.error('Chrome not found! Trying fallback...');
+}
 
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
