@@ -25,8 +25,7 @@ db.migrate().then(() => sv.logger.info('Database ready')).catch(err => {
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
   puppeteer: {
-    headless: 'new',
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
+    headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
