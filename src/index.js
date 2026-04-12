@@ -28,11 +28,35 @@ db.migrate().then(() => sv.logger.success('✅ Database connected and migrated')
   process.exit(1);
 });
 
+const fs = require('fs');
+
+function findChrome() {
+  const paths = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/app/.cache/puppeteer/chrome/linux-*/chrome-linux64/chrome'
+  ];
+  for (const p of paths) {
+    if (p && fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+const chromePath = findChrome();
+if (!chromePath) {
+  sv.logger.error('❌ Chrome not found in any standard location');
+  process.exit(1);
+}
+sv.logger.info(`✅ Chrome found at: ${chromePath}`);
+
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
   puppeteer: {
     headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+    executablePath: chromePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
